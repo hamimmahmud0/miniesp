@@ -1,4 +1,4 @@
-// btop - a full-screen system monitor for esp32-unix (CPU, memory, tasks), in the spirit of btop/htop.
+// btop - a full-screen system monitor for miniesp (CPU, memory, tasks), in the spirit of btop/htop.
 //
 //   q / Ctrl-C  quit        space  pause/resume        s  change sort (cpu, stack, name, pid)
 //   + / -       refresh slower/faster                  r  clear the CPU history

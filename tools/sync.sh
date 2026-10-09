@@ -15,7 +15,7 @@ PW=${ESP_PASSWORD:-$(cat "$ROOT/.creds/esp32_ssh_password" 2>/dev/null || true)}
 ASK=$(mktemp); trap 'rm -f "$ASK"' EXIT
 printf '#!/bin/sh\nprintf %%s "%s"\n' "$PW" > "$ASK"; chmod 700 "$ASK"
 SSH=(env SSH_ASKPASS="$ASK" SSH_ASKPASS_REQUIRE=force DISPLAY=none ssh -o StrictHostKeyChecking=accept-new -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ConnectTimeout=15 "$USER_@$HOST")
-q() { grep -v "post-quantum\|store now\|server may need\|^\*\*\|^esp32-unix"; }
+q() { grep -v "post-quantum\|store now\|server may need\|^\*\*\|^esp32-unix\|^miniesp$"; }
 run() { "${SSH[@]}" "$1" </dev/null 2>&1 | q; }
 
 for d in /bin /etc /etc/pkg /etc/services /var /var/pkg /www /www/cgi-bin /esp/.local /esp/.local/bin; do run "mkdir $d" >/dev/null; done
@@ -35,7 +35,7 @@ put_if_missing() {
 }
 
 for f in "$FS"/bin/*.aot; do sync_if_different "$f" "/bin/$(basename "$f")"; done
-sync_if_different "$FS/www/cgi-bin/sysinfo.aot" /www/cgi-bin/sysinfo.aot
+for f in "$FS"/www/cgi-bin/*.aot; do [ -e "$f" ] && sync_if_different "$f" "/www/cgi-bin/$(basename "$f")"; done
 put_if_missing "$FS/etc/motd" /etc/motd
 put_if_missing "$FS/etc/pkg/sources.list" /etc/pkg/sources.list
 for f in "$FS"/etc/services/*.service; do [ -e "$f" ] && put_if_missing "$f" "/etc/services/$(basename "$f")"; done

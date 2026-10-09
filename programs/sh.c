@@ -1,4 +1,4 @@
-// sh - a small bash-like shell, running as an AOT program on esp32-unix.
+// sh - a small bash-like shell, running as an AOT program on miniesp.
 //
 //   sh                   interactive (when stdin is a terminal) or reads a script from stdin
 //   sh script.sh [args]  run a script ($0, $1.. $9, $#, $@)

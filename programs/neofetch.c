@@ -19,7 +19,7 @@ int main(int argc, char **argv)
     char info[12][96]; int n = 0;
     m_snprintf(info[n++], 96, "%sesp%s@%s%s%s", B, R, B, host, R);
     m_snprintf(info[n++], 96, "%s-----------------%s", T, R);
-    m_snprintf(info[n++], 96, "%sOS%s: esp32-unix (ESP-IDF + WAMR AOT)", B, R);
+    m_snprintf(info[n++], 96, "%sOS%s: miniesp (ESP-IDF + WAMR AOT)", B, R);
     m_snprintf(info[n++], 96, "%sFirmware%s: %s (syscall ABI %d)", B, R, ver, sys_abi());
     m_snprintf(info[n++], 96, "%sUptime%s: %dd %dh %dm", B, R, d, h, m);
     m_snprintf(info[n++], 96, "%sCPU%s: ESP32 Xtensa LX6 @ %d MHz (%d tasks)", B, R, sys_sysinfo(SI_CPU_MHZ), sys_sysinfo(SI_NTASKS));

@@ -1,4 +1,4 @@
-// mini.h - the programmer's interface to esp32-unix: syscalls + tiny libc-free helpers.
+// mini.h - the programmer's interface to miniesp: syscalls + tiny libc-free helpers.
 // Programs are built freestanding (no wasi-libc): this header provides the entry point, the syscalls
 // and the few libc-like helpers needed. Write a normal  int main(int argc, char **argv).
 //

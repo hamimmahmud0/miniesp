@@ -10,6 +10,8 @@
 # journal https://example.org/other.journal
 # pkg hello 1.0 https://raw.githubusercontent.com/hamimmahmud0/miniesp/main/pkgs/hello.aot sha256=0000 size=3012 abi=3
 pkg curl 1.0 https://raw.githubusercontent.com/hamimmahmud0/miniesp/main/pkgs/curl.aot sha256=f13905bb46cac8bd17212263814ea16d3d2ff8a6edff91b7ff8ed15b01eb7e8b size=6172 abi=4
-pkg neofetch 1.0 https://raw.githubusercontent.com/hamimmahmud0/miniesp/main/pkgs/neofetch.aot sha256=d73dfa0c807a5ca39bb8fe0cb1049827570d5770c44bfcfcb5a2cf6264b5d2c8 size=12140 abi=4
 pkg nano 1.0 https://raw.githubusercontent.com/hamimmahmud0/miniesp/main/pkgs/nano.aot sha256=e3211f7e971ba104de24f0ea2431bfb3ba3af295d085bfa24bd453bfc3c705c1 size=18848 abi=3
 pkg touch 1.0 https://raw.githubusercontent.com/hamimmahmud0/miniesp/main/pkgs/touch.aot sha256=34ab0570845b8006427f011eae9b67f50fb7096a1b9e3672ce0688814da97144 size=3612 abi=3
+pkg neofetch 1.0 https://raw.githubusercontent.com/hamimmahmud0/miniesp/main/pkgs/neofetch.aot sha256=d8ec0ba451b4092517a123622084e309a8e4dd01b63c3bbb46e76ebdbb766818 size=12136 abi=4
+pkg nmap 1.0 https://raw.githubusercontent.com/hamimmahmud0/miniesp/main/pkgs/nmap.aot sha256=8c9701ff5c9f08fd24d77b86cb36aa838f5cb5cb3831c1277c5c1f4d47d31cf2 size=14472 abi=3
+bundle wtms 1.0 https://raw.githubusercontent.com/hamimmahmud0/miniesp/main/pkgs/wtms/MANIFEST sha256=28aa287bca60e02e21f75e8ab35f0ac9ac891a8dacf6ee89864f03e626a4648b size=1717 abi=4

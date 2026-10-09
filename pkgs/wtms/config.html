@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Settings - Water tank - miniesp</title><link rel="stylesheet" href="tank.css"><style>.calc{display:none;border-top:1px dashed var(--line);margin-top:8px;padding-top:6px}</style></head><body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="i-droplet" viewBox="0 0 24 24"><path d="M12 3c3.5 4.2 6 7 6 10.2A6 6 0 0 1 6 13.2C6 10 8.5 7.2 12 3z"/></symbol>
+<symbol id="i-activity" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+<symbol id="i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></symbol>
+<symbol id="i-package" viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9"/></symbol>
+<symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v8M6.3 7a8 8 0 1 0 11.4 0"/></symbol>
+<symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+<symbol id="i-cpu" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></symbol>
+<symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.6 3.9 5.6 3.9 9s-1.3 6.4-3.9 9c-2.6-2.6-3.9-5.6-3.9-9s1.3-6.4 3.9-9z"/></symbol>
+<symbol id="i-wifi" viewBox="0 0 24 24"><path d="M2.5 9a14 14 0 0 1 19 0M5.8 12.5a9.5 9.5 0 0 1 12.4 0M9 16a5 5 0 0 1 6 0"/><circle cx="12" cy="19.5" r=".9"/></symbol>
+<symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+<symbol id="i-save" viewBox="0 0 24 24"><path d="M5 3h11l3 3v15H5V3z"/><path d="M8 3v5h7V3M8 21v-6h8v6"/></symbol>
+</defs></svg>
+<header class="top"><div class="bar">
+ <a class="brand" href="/" aria-label="miniesp">
+  <svg class="logo" viewBox="0 0 64 64" width="28" height="28" aria-hidden="true"><g class="pins"><rect x="21" y="3" width="4" height="9" rx="2"/><rect x="30" y="3" width="4" height="9" rx="2"/><rect x="39" y="3" width="4" height="9" rx="2"/><rect x="21" y="52" width="4" height="9" rx="2"/><rect x="30" y="52" width="4" height="9" rx="2"/><rect x="39" y="52" width="4" height="9" rx="2"/><rect x="3" y="21" width="9" height="4" rx="2"/><rect x="3" y="30" width="9" height="4" rx="2"/><rect x="3" y="39" width="9" height="4" rx="2"/><rect x="52" y="21" width="9" height="4" rx="2"/><rect x="52" y="30" width="9" height="4" rx="2"/><rect x="52" y="39" width="9" height="4" rx="2"/></g><rect class="body" x="12" y="12" width="40" height="40" rx="7"/><path class="chev" d="M22 23l11 9-11 9" fill="none" stroke-width="4.5"/><rect x="35" y="39" width="11" height="4.5" fill="#f97316"/></svg>
+  <span>mini<b>esp</b></span></a>
+ <nav class="mtabs" aria-label="Console">
+  <a href="/#machine"><svg class="ic"><use href="#i-server"/></svg>Machine</a>
+  <a href="/#services"><svg class="ic"><use href="#i-activity"/></svg>Services</a>
+  <a href="/#apps" aria-current="page"><svg class="ic"><use href="#i-package"/></svg>Apps</a>
+ </nav>
+</div></header>
+<main class="wrap">
+<div class="head"><div class="tile"><svg class="ic" style="width:24px;height:24px"><use href="#i-sliders"/></svg></div>
+ <div><h1>Settings</h1><div class="sub">Water tank manager</div></div>
+ <nav class="menu"><a href="index.html">Dashboard</a><a class="cur" href="config.html">Settings</a><button onclick="T.logout()">Log out</button></nav></div>
+<div class="cards">
+<div class="card"><h2><svg class="ic"><use href="#i-power"/></svg>Force control</h2><div id="ctlbox"></div></div>
+<form id="f" onsubmit="return save(event)" style="display:contents">
+<div class="card"><h2><svg class="ic"><use href="#i-droplet"/></svg>Tank</h2>
+ <div class="row"><label>Capacity (litres)<small>when full</small></label><input name="vol_l" type="number" min="1"></div>
+ <div><a href="#" onclick="document.getElementById('calc').style.display='block';return false" class="sub">Calculate from tank dimensions&hellip;</a></div>
+ <div class="calc" id="calc">
+  <div class="row"><label>Shape</label><select id="shape" onchange="shapeUI()"><option value="r">Rectangular</option><option value="c">Cylinder</option></select></div>
+  <div class="row" id="rl"><label>Length (cm)</label><input id="cl" type="number" min="1"></div>
+  <div class="row" id="rw"><label>Width (cm)</label><input id="cw" type="number" min="1"></div>
+  <div class="row" id="rd" style="display:none"><label>Diameter (cm)</label><input id="cd" type="number" min="1"></div>
+  <div class="row"><label>Water height when full (cm)</label><input id="ch" type="number" min="1"></div>
+  <button type="button" class="b sec" onclick="calc()">Use this capacity</button>
+ </div>
+ <div class="row"><label>Sensor to water when FULL (cm)<small>at least 2.5</small></label><input name="full_cm" type="number" step="0.1" min="2.5"></div>
+ <div class="row"><label>Sensor to water when EMPTY (cm)<small>to the tank floor</small></label><input name="empty_cm" type="number" step="0.1"></div>
+ <div class="btns"><button type="button" class="b sec" onclick="readSensor()">Read sensor now</button>
+  <button type="button" class="b sec" onclick="useReading('full_cm')">Use reading as FULL</button>
+  <button type="button" class="b sec" onclick="useReading('empty_cm')">Use reading as EMPTY</button></div>
+ <div class="msg sub" id="rd_msg"></div>
+</div>
+
+<div class="card"><h2><svg class="ic"><use href="#i-sliders"/></svg>Thresholds &amp; safety</h2>
+ <div class="row"><label>Start pump at or below (%)</label><input name="on_pct" type="number" min="0" max="99"></div>
+ <div class="row"><label>Stop pump at or above (%)</label><input name="off_pct" type="number" min="1" max="100"></div>
+ <div class="row"><label>Longest run (minutes)<small>then stop and flag a fault</small></label><input name="max_run" type="number" min="1"></div>
+ <div class="row"><label>Rest between runs (minutes)</label><input name="rest" type="number" min="0"></div>
+ <div class="row"><label>No-flow check after (minutes)</label><input name="flow_min" type="number" min="1"></div>
+ <div class="row"><label>Minimum rise in that time (%)<small>less &rarr; "no_flow" fault</small></label><input name="rise_pct" type="number" step="0.1" min="0"></div>
+</div>
+
+<div class="card"><h2><svg class="ic"><use href="#i-clock"/></svg>Timing &amp; filtering</h2>
+ <div class="row"><label>Read the level every (seconds)<small>5&ndash;3600; at most 15 s while the pump runs</small></label><input name="interval" type="number" min="5" max="3600"></div>
+ <div class="row"><label>Echo samples per reading<small>3&ndash;15, median is used</small></label><input name="samples" type="number" min="3" max="15"></div>
+ <div class="row"><label>Ignore jumps larger than (%)<small>splashes / stray echoes; 5&ndash;100</small></label><input name="jump_pct" type="number" min="5" max="100"></div>
+ <div class="row"><label>Good readings before first start<small>1&ndash;20 in a row</small></label><input name="good_n" type="number" min="1" max="20"></div>
+ <div class="row"><label>Assumed air temperature (&deg;C)<small>used without a DS18B20</small></label><input name="temp_c" type="number" min="-30" max="60"></div>
+ <div class="row"><label>History sample every (seconds)</label><input name="hist" type="number" min="10"></div>
+ <div class="row"><label>History file size (KB)<small>old data rotates out; 4&ndash;64</small></label><input name="hist_kb" type="number" min="4" max="64"></div>
+</div>
+<div class="card"><h2><svg class="ic"><use href="#i-cpu"/></svg>Sensor wiring</h2>
+ <div class="row"><label>TRIG GPIO</label><input name="trig" type="number"></div>
+ <div class="row"><label>ECHO GPIO<small>through a 5V&rarr;3.3V divider</small></label><input name="echo" type="number"></div>
+ <div class="row"><label>DS18B20 GPIO<small>0 = none (temperature compensation)</small></label><input name="temp" type="number"></div>
+</div>
+
+<div class="card"><h2><svg class="ic"><use href="#i-globe"/></svg>Integration</h2>
+ <div class="row"><label>Tank name / MQTT prefix</label><input name="name"></div>
+ <div class="row"><label>Pump relay topic prefix</label><input name="pump"></div>
+ <div class="row"><label>Home Assistant discovery prefix<small>empty = off</small></label><input name="ha"></div>
+</div>
+<div class="card"><h2><svg class="ic"><use href="#i-save"/></svg>Save</h2><div class="btns"><button class="b" type="submit" id="savebtn">Save settings</button><button class="b sec" type="button" onclick="load()">Reload values</button></div><div class="msg" id="msg"></div></div>
+</form>
+<div class="card"><h2><svg class="ic"><use href="#i-wifi"/></svg>MQTT broker</h2>
+ <div class="sub" id="mqs">--</div>
+ <div class="row"><label>Broker host / IP</label><input id="mh" maxlength="40"></div>
+ <div class="row"><label>Port</label><input id="mp" type="number" min="1" max="65535"></div>
+ <div class="row"><label>User<small>max 16 characters; empty = none</small></label><input id="mu" maxlength="16" autocomplete="off"></div>
+ <div class="row"><label>Password<small>required to apply; max 24 characters</small></label><input id="mw" type="password" maxlength="24" autocomplete="new-password"></div>
+ <div class="btns"><button class="b" type="button" onclick="saveMqtt()">Apply broker settings</button></div>
+ <div class="msg" id="mmsg"></div>
+ <div class="sub">Applying reconnects the controller to the broker (client ID becomes the board's hostname). Stored on the board; the password is never shown again.</div>
+</div>
+<div class="card"><h2><svg class="ic"><use href="#i-user"/></svg>Account</h2>
+ <div class="row"><label for="op">Current password</label><input id="op" type="password" autocomplete="current-password"></div>
+ <div class="row"><label for="np">New password<small>6+ characters; logs out other sessions</small></label><input id="np" type="password" autocomplete="new-password"></div>
+ <div class="btns"><button class="b sec" type="button" onclick="chpw()">Change password</button></div><div class="msg" id="pmsg"></div></div>
+</div>
+<p class="sub">MQTT broker address/credentials: <code>ssh esp@esp-minix.local "mqtt config HOST PORT USER PASS"</code>. Plain HTTP: use only on a trusted network.</p>
+<script src="tank.js"></script>
+<script>
+const F=$('f');
+let cfg={}, lastMM=null;
+function msg(t,c){$('msg').textContent=t;$('msg').className='msg '+(c||'')}
+function fill(){
+  for(const el of F.elements){
+    if(!el.name)continue; const n=el.name;
+    if(n==='full_cm')el.value=cfg.full_mm/10; else if(n==='empty_cm')el.value=cfg.empty_mm/10;
+    else if(n==='rise_pct')el.value=cfg.rise_pm/10; else if(n in cfg)el.value=cfg[n];
+  }
+}
+async function load(){ try{const r=await T.call('get'); if(r.error)return; cfg=r;fill();msg('')}catch(e){msg(e.message,'e')} }
+function collect(){
+  const a=[];
+  for(const el of F.elements){ if(!el.name)continue; const n=el.name,v=el.value.trim(); let k=n,val=v;
+    if(n==='full_cm'){k='full_mm';val=Math.round(parseFloat(v)*10)}
+    else if(n==='empty_cm'){k='empty_mm';val=Math.round(parseFloat(v)*10)}
+    else if(n==='rise_pct'){k='rise_pm';val=Math.round(parseFloat(v)*10)}
+    if(typeof val==='number'&&isNaN(val)){throw new Error('check the number in "'+n+'"')}
+    if(['name','pump','ha'].includes(n)&&!/^[A-Za-z0-9_.,:@\/-]*$/.test(String(val)))throw new Error('"'+n+'" may only contain letters, digits and _ . , : @ / -');
+    a.push(k+'='+val);
+  }
+  return a;
+}
+async function save(ev){
+  ev.preventDefault(); $('savebtn').disabled=true; msg('Saving\u2026');
+  try{
+    const a=collect(); let r=await T.call('stage','new','end'); if(r.error==='auth')return false;   // long forms are sent in short pieces
+    for(let i=0;i<a.length&&r.ok;){ let part=[],len=0; while(i<a.length&&len+a[i].length<110){len+=a[i].length+1;part.push(a[i++])} r=await T.call('stage',...part,'end') }
+    if(r.ok)r=await T.call('commit','end');
+    if(r.ok){msg('Saved. Smoothing restarted; Home Assistant entities refresh on the next cycle.','g');await load()} else if(r.error!=='auth')msg(r.error||'rejected','e')
+  }catch(e){msg(e.message,'e')}
+  $('savebtn').disabled=false; return false;
+}
+async function readSensor(){
+  $('rd_msg').textContent='Reading\u2026';
+  try{const r=await T.call('readj'); if(r.ok){lastMM=r.distance_mm;$('rd_msg').textContent='Distance '+(r.distance_mm/10).toFixed(1)+' cm \u2192 level '+r.level+'% ('+r.litres+' L) with the saved settings'}
+      else {lastMM=null;$('rd_msg').textContent='No echo: check wiring and pins'}}
+  catch(e){$('rd_msg').textContent=e.message}
+}
+async function useReading(f){ if(lastMM===null)await readSensor(); if(lastMM!==null){F.elements[f].value=(lastMM/10).toFixed(1);$('rd_msg').textContent+=' \u2014 copied to '+f.replace('_cm','').toUpperCase()+'; press Save.'} }
+function shapeUI(){const c=$('shape').value==='c';$('rl').style.display=$('rw').style.display=c?'none':'';$('rd').style.display=c?'':'none'}
+function calc(){
+  const h=+$('ch').value; let l;
+  if($('shape').value==='c'){const d=+$('cd').value;l=Math.PI*d*d/4*h/1000}else l=$('cl').value*$('cw').value*h/1000;
+  if(!(l>0)){msg('Fill in the dimensions','e');return} F.elements.vol_l.value=Math.round(l); msg('Capacity set to '+Math.round(l)+' L \u2014 press Save.','g');
+}
+async function loadMqtt(){
+  try{const r=await T.call('mqttget'); if(!r.ok)return; $('mh').value=r.host;$('mp').value=r.port;$('mu').value=r.user;
+    $('mqs').textContent=['Disconnected','Connecting\u2026','Connected'][r.state]+' \u2014 client "'+r.client+'"'}catch(e){}
+}
+async function saveMqtt(){
+  const m=$('mmsg'); m.className='msg'; m.textContent='';
+  const h=$('mh').value.trim(),p=$('mp').value,u=$('mu').value,w=$('mw').value;
+  if(!/^[A-Za-z0-9_.-]{1,40}$/.test(h)){m.textContent='Enter a valid host name or IP.';m.className='msg e';return}
+  if(!w){m.textContent='Enter the broker password to apply (it cannot be read back).';m.className='msg e';return}
+  const hx=x=>x?T.hex(x):'00';
+  m.textContent='Applying\u2026';
+  const r=await T.call('mqttset',h,p,hx(u),hx(w),'end');
+  if(r.ok){m.textContent='Applied.';m.className='msg g';$('mw').value='';setTimeout(loadMqtt,3000)} else if(r.error!=='auth'){m.textContent=r.error||'Failed';m.className='msg e'}
+}
+async function chpw(){
+  const m=$('pmsg'); m.className='msg'; m.textContent='';
+  if($('np').value.length<6){m.textContent='New password needs 6+ characters.';m.className='msg e';return}
+  const r=await T.call('passwd',T.hex($('op').value),T.hex($('np').value));
+  if(r.ok){T.setTok(r.token);m.textContent='Password changed.';m.className='msg g';$('op').value=$('np').value=''} else if(r.error==='bad'){m.textContent='Current password is wrong.';m.className='msg e'} else if(r.error!=='auth'){m.textContent='Failed: '+r.error;m.className='msg e'}
+}
+async function live(){ try{T.showForce(await (await fetch('state.json?'+Date.now())).json())}catch(e){} }
+(async()=>{ if(!(await T.loggedIn())){location.href='login.html?next=config.html';return}
+  T.mountControls($('ctlbox')); live(); setInterval(live,10000); load(); loadMqtt(); })();
+</script></main></body></html>

@@ -3,6 +3,7 @@
 //   pkg list [WORD]     list the known packages (optionally only names containing WORD); [i] = installed
 //   pkg info NAME       details of one package
 //   pkg install NAME    download, verify (size + SHA-256 + abi) and install to ~/.local/bin/NAME.aot
+//                       (a "bundle" package installs several files listed in a manifest, see journals/main.journal)
 //   pkg remove NAME     delete ~/.local/bin/NAME.aot
 //   pkg fix             reinstall recorded packages that are missing (e.g. after the filesystem was wiped)
 //   pkg sources         show the sources
@@ -85,7 +86,7 @@ static void queue(const char *url, int d)
     depth[njournals++] = (unsigned char)d;
 }
 
-static int add_pkg(int out, char **w, int nw)       // pkg NAME VERSION URL key=value...
+static int add_pkg(int out, char **w, int nw, int bundle)       // pkg|bundle NAME VERSION URL key=value...
 {
     if (nw < 4 || !valid_name(w[1]) || !valid_url(w[3]) || m_strlen(w[2]) > 24) return -1;
     const char *sha = 0; int size = 0, abi = 0;
@@ -97,7 +98,7 @@ static int add_pkg(int out, char **w, int nw)       // pkg NAME VERSION URL key=
     if (!sha || !is_hex64(sha) || size <= 0) return -1;
     if (index_has(w[1])) return -2;                  // an earlier journal already provides it
     char rec[LINE_LEN];
-    int n = m_snprintf(rec, sizeof rec, "%s %s %d %d %s %s\n", w[1], w[2], size, abi, sha, w[3]);
+    int n = m_snprintf(rec, sizeof rec, "%s %s %d %d %s %s%s\n", w[1], w[2], size, abi, sha, w[3], bundle ? " bundle" : "");
     sys_write(out, rec, n);
     return 0;
 }
@@ -141,8 +142,8 @@ static int cmd_update(void)
             char *w[12]; int nw = split(line, w, 12);
             if (nw < 1 || w[0][0] == '#') continue;
             if (!m_strcmp(w[0], "journal") && nw >= 2 && valid_url(w[1])) queue(w[1], depth[j] + 1);
-            else if (!m_strcmp(w[0], "pkg")) {
-                int a = add_pkg(out, w, nw);
+            else if (!m_strcmp(w[0], "pkg") || !m_strcmp(w[0], "bundle")) {
+                int a = add_pkg(out, w, nw, w[0][0] == 'b');
                 if (a == 0) packages++; else if (a == -2) dups++; else m_eprintf("  line %d: bad pkg entry ignored\n", ln);
             } else m_eprintf("  line %d: unknown entry ignored\n", ln);
         }
@@ -169,12 +170,12 @@ static int cmd_list(const char *filter)
     rd_t rd = { .n = 0, .i = 0 };
     char line[LINE_LEN], path[64]; int n = 0;
     while (next_line(fd, &rd, line, sizeof line)) {
-        char *w[6]; if (split(line, w, 6) < 6) continue;          // name version size abi sha url
+        char *w[7] = { 0, 0, 0, 0, 0, 0, 0 }; if (split(line, w, 7) < 6) continue;          // name version size abi sha url [bundle]
         if (filter && !contains(w[0], filter)) continue;
-        m_snprintf(path, sizeof path, "/esp/.local/bin/%s.aot", w[0]);
+        if (w[6]) m_snprintf(path, sizeof path, "/var/pkg/%s.manifest", w[0]); else m_snprintf(path, sizeof path, "/esp/.local/bin/%s.aot", w[0]);
         m_printf("%s %s", sys_stat(path) == 1 ? "[i]" : "   ", w[0]);
         for (int k = (int)m_strlen(w[0]); k < 18; k++) m_puts(" ");
-        m_printf("%s  %s B  abi %s\n", w[1], w[2], w[3]);
+        m_printf("%s  %s B  abi %s%s\n", w[1], w[2], w[3], w[6] ? "  (bundle)" : "");
         n++;
     }
     sys_close(fd);
@@ -279,7 +280,7 @@ static int sha256_file(const char *path, char *hex)
     return 0;
 }
 
-// Find NAME in the index; fills the 6 words (name version size abi sha url) of line. Returns 0 if found.
+// Find NAME in the index; fills the words (name version size abi sha url [bundle]; w[6] is NULL for a plain program) of line. Returns 0 if found.
 static int find_pkg(const char *name, char *line, int cap, char **w)
 {
     int fd = sys_open(INDEX, 0);
@@ -287,7 +288,8 @@ static int find_pkg(const char *name, char *line, int cap, char **w)
     rd_t rd = { .n = 0, .i = 0 };
     int found = -2;
     while (next_line(fd, &rd, line, cap)) {
-        if (split(line, w, 6) >= 6 && !m_strcmp(w[0], name)) { found = 0; break; }
+        w[6] = 0;
+        if (split(line, w, 7) >= 6 && !m_strcmp(w[0], name)) { found = 0; break; }
     }
     sys_close(fd);
     if (found) m_eprintf("pkg: no package named '%s'\n", name);
@@ -296,10 +298,155 @@ static int find_pkg(const char *name, char *line, int cap, char **w)
 
 static void bin_path(const char *name, char *path, int n) { m_snprintf(path, n, "/esp/.local/bin/%s.aot", name); }
 
+/* ---- bundle packages: several files described by a manifest ---- */
+// Manifest lines ('#' comments):  dir PATH | file PATH URL sha256=HEX size=N | copy SRC DEST | service NAME | note TEXT...
+// Paths must be absolute under /esp/, /www/, /etc/ or /var/ (no "..").
+static int path_ok(const char *p)
+{
+    if (!(starts(p, "/esp/") || starts(p, "/www/") || starts(p, "/etc/") || starts(p, "/var/")) || m_strlen(p) > 90) return 0;
+    for (const char *c = p; *c; c++) {
+        if (!((*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9') || *c == '_' || *c == '-' || *c == '.' || *c == '/')) return 0;
+        if (c[0] == '.' && c[1] == '.') return 0;
+    }
+    return 1;
+}
+static void mkdir_parents(const char *path)                  // create every directory above the file name
+{
+    char b[100];
+    for (int i = 1; path[i] && i < 99; i++)
+        if (path[i] == '/') { for (int k = 0; k < i; k++) b[k] = path[k]; b[i] = 0; sys_mkdir(b); }
+}
+static int copy_file(const char *src, const char *dst)
+{
+    int in = sys_open(src, 0); if (in < 0) return -1;
+    int out = sys_open(dst, 1); if (out < 0) { sys_close(in); return -1; }
+    char buf[256]; int r, bad = 0;
+    while ((r = sys_read(in, buf, sizeof buf)) > 0) if (sys_write(out, buf, r) != r) { bad = 1; break; }
+    sys_close(in); sys_close(out);
+    if (bad) sys_unlink(dst);
+    return bad ? -1 : 0;
+}
+static void run_service(const char *verb, const char *name)   // built-in "service VERB NAME" (no program memory needed)
+{
+    char blob[64]; int n = m_snprintf(blob, sizeof blob, "service%c%s%c%s", 0, verb, 0, name) + 1;
+    sys_run(blob, n, 3, 0, 1, 2);
+}
+static void manifest_path(const char *name, char *out, int n) { m_snprintf(out, n, "/var/pkg/%s.manifest", name); }
+
+// is every file of an installed bundle present?
+static int bundle_complete(const char *name)
+{
+    char mp[64]; manifest_path(name, mp, sizeof mp);
+    int fd = sys_open(mp, 0); if (fd < 0) return 0;
+    rd_t rd = { .n = 0, .i = 0 }; char line[LINE_LEN], *w[6]; int ok = 1;
+    while (ok && next_line(fd, &rd, line, sizeof line)) {
+        int nw = split(line, w, 6);
+        if (nw >= 3 && (!m_strcmp(w[0], "file") || !m_strcmp(w[0], "copy"))) { if (sys_stat(m_strcmp(w[0], "copy") ? w[1] : w[2]) != 1) ok = 0; }
+    }
+    sys_close(fd);
+    return ok;
+}
+
+static int install_bundle(const char *name, char **w)
+{
+    int size = m_atoi(w[2]), abi = m_atoi(w[3]);
+    if (abi > sys_abi()) { m_eprintf("pkg: %s needs syscall ABI %d, this firmware has %d: update the firmware first\n", name, abi, sys_abi()); return 1; }
+    char mp[64], mnew[72], hex[65]; manifest_path(name, mp, sizeof mp); m_snprintf(mnew, sizeof mnew, "%s.new", mp);
+    sys_mkdir("/var"); sys_mkdir("/var/pkg");
+    m_printf("fetch manifest %s\n", w[5]);
+    int r = sys_http_get(w[5], mnew, size, 20000);
+    if (r < 0) { m_eprintf("pkg: manifest download failed (%d)\n", r); return r == -4 ? 130 : 1; }
+    if (r != size || sha256_file(mnew, hex) || m_strcmp(hex, w[4])) { m_eputs("pkg: manifest verification failed\n"); sys_unlink(mnew); return 1; }
+
+    char line[LINE_LEN], *f[6]; int fd, nfiles = 0, ln = 0;
+    // pass 1: validate everything before touching the filesystem
+    fd = sys_open(mnew, 0); if (fd < 0) return 1;
+    rd_t rd = { .n = 0, .i = 0 };
+    while (next_line(fd, &rd, line, sizeof line)) {
+        ln++;
+        int nw = split(line, f, 6), bad = 0;
+        if (nw < 1 || f[0][0] == '#') continue;
+        if (!m_strcmp(f[0], "dir")) bad = nw < 2 || !path_ok(f[1]);
+        else if (!m_strcmp(f[0], "file")) bad = nw < 5 || !path_ok(f[1]) || !valid_url(f[2]) || !starts(f[3], "sha256=") || !is_hex64(f[3] + 7) || !starts(f[4], "size=") || m_atoi(f[4] + 5) <= 0;
+        else if (!m_strcmp(f[0], "copy")) bad = nw < 3 || !path_ok(f[1]) || !path_ok(f[2]);
+        else if (!m_strcmp(f[0], "service")) bad = nw < 2 || !valid_name(f[1]);
+        else if (m_strcmp(f[0], "note")) bad = 1;
+        if (bad) { m_eprintf("pkg: manifest line %d is invalid; nothing installed\n", ln); sys_close(fd); sys_unlink(mnew); return 1; }
+    }
+    sys_close(fd);
+
+    // pass 2: create directories, download + verify files, copy
+    static char notes[300]; notes[0] = 0;
+    fd = sys_open(mnew, 0); if (fd < 0) return 1;
+    rd.n = rd.i = 0;
+    while (next_line(fd, &rd, line, sizeof line)) {
+        int nw = split(line, f, 6);
+        if (nw < 1 || f[0][0] == '#') continue;
+        if (!m_strcmp(f[0], "dir")) { mkdir_parents(f[1]); sys_mkdir(f[1]); }
+        else if (!m_strcmp(f[0], "file")) {
+            int fs = m_atoi(f[4] + 5);
+            mkdir_parents(f[1]);
+            if (sys_stat(f[1]) == 1 && sys_fsize(f[1]) == fs && !sha256_file(f[1], hex) && !m_strcmp(hex, f[3] + 7)) { m_printf("  ok      %s\n", f[1]); nfiles++; continue; }
+            m_printf("  fetch   %s (%d B)\n", f[1], fs);
+            int g = sys_http_get(f[2], f[1], fs, 30000);
+            if (g < 0 || g != fs || sha256_file(f[1], hex) || m_strcmp(hex, f[3] + 7)) {
+                m_eprintf("pkg: %s failed (%d); the bundle is incomplete, run pkg install %s again\n", f[1], g, name);
+                if (g >= 0) sys_unlink(f[1]);
+                sys_close(fd); sys_unlink(mnew); return g == -4 ? 130 : 1;
+            }
+            nfiles++;
+        }
+        else if (!m_strcmp(f[0], "copy")) {
+            mkdir_parents(f[2]);
+            if (copy_file(f[1], f[2])) { m_eprintf("pkg: cannot copy %s to %s\n", f[1], f[2]); sys_close(fd); sys_unlink(mnew); return 1; }
+            m_printf("  copy    %s\n", f[2]); nfiles++;
+        }
+    }
+    sys_close(fd);
+    // notes: re-read raw lines (split() cut them at the spaces)
+    fd = sys_open(mnew, 0);
+    if (fd >= 0) {
+        rd.n = rd.i = 0;
+        while (next_line(fd, &rd, line, sizeof line)) if (starts(line, "note ")) { int o = (int)m_strlen(notes); m_snprintf(notes + o, (int)sizeof notes - o, "%s\n", line + 5); }
+        sys_close(fd);
+    }
+    sys_unlink(mp);
+    if (sys_rename(mnew, mp)) { m_eprintf("pkg: cannot record %s\n", mp); return 1; }
+    inst_add(name);
+    m_printf("installed bundle %s %s (%d files)\n", name, w[1], nfiles);
+    if (notes[0]) m_puts(notes);
+    return 0;
+}
+
+static int remove_bundle(const char *name)
+{
+    char mp[64]; manifest_path(name, mp, sizeof mp);
+    int fd = sys_open(mp, 0); if (fd < 0) return -1;
+    rd_t rd = { .n = 0, .i = 0 }; char line[LINE_LEN], *f[6], dirs[600]; int nd = 0, nf = 0; dirs[0] = 0;
+    while (next_line(fd, &rd, line, sizeof line)) {
+        int nw = split(line, f, 6);
+        if (nw < 2 || f[0][0] == '#') continue;
+        if (!m_strcmp(f[0], "file") && path_ok(f[1])) { if (!sys_unlink(f[1])) nf++; }
+        else if (!m_strcmp(f[0], "copy") && nw >= 3 && path_ok(f[2])) { if (!sys_unlink(f[2])) nf++; }
+        else if (!m_strcmp(f[0], "service") && valid_name(f[1])) { run_service("stop", f[1]); run_service("rm", f[1]); }
+        else if (!m_strcmp(f[0], "dir") && path_ok(f[1]) && nd + (int)m_strlen(f[1]) + 2 < (int)sizeof dirs) { nd += m_snprintf(dirs + nd, (int)sizeof dirs - nd, "%s\n", f[1]); }
+    }
+    sys_close(fd);
+    for (int pass = 0; pass < 3; pass++) {                       // remove now-empty directories (children first, by repetition)
+        char tmp[600]; int k = 0; while (dirs[k] && k < (int)sizeof tmp - 1) { tmp[k] = dirs[k]; k++; } tmp[k] = 0;
+        for (char *q = tmp; *q;) { char *e = q; while (*e && *e != '\n') e++; int more = *e; *e = 0; if (*q) sys_rmdir(q); if (!more) break; q = e + 1; }
+    }
+    sys_unlink(mp);
+    inst_del(name);
+    m_printf("removed bundle %s (%d files; settings in the key-value store and data files such as history are kept)\n", name, nf);
+    return 0;
+}
+
 static int cmd_install(const char *name)
 {
-    char line[LINE_LEN], *w[6];
+    char line[LINE_LEN], *w[7];
     if (find_pkg(name, line, sizeof line, w)) return 1;
+    if (w[6]) return install_bundle(name, w);
     int size = m_atoi(w[2]), abi = m_atoi(w[3]);
     if (abi > sys_abi()) { m_eprintf("pkg: %s needs syscall ABI %d, this firmware has %d: update the firmware first\n", name, abi, sys_abi()); return 1; }
     m_printf("fetch %s (%d B)\n", w[5], size);
@@ -327,6 +474,7 @@ static int cmd_install(const char *name)
 static int cmd_remove(const char *name)
 {
     char path[64]; bin_path(name, path, sizeof path);
+    if (valid_name(name) && !remove_bundle(name)) return 0;
     if (!valid_name(name) || sys_stat(path) != 1) { m_eprintf("pkg: %s is not installed\n", name); return 1; }
     if (sys_unlink(path)) { m_eputs("pkg: cannot remove\n"); return 1; }
     inst_del(name);
@@ -336,11 +484,11 @@ static int cmd_remove(const char *name)
 
 static int cmd_info(const char *name)
 {
-    char line[LINE_LEN], *w[6], path[64];
+    char line[LINE_LEN], *w[7], path[64];
     if (find_pkg(name, line, sizeof line, w)) return 1;
-    bin_path(name, path, sizeof path);
-    m_printf("name:      %s\nversion:   %s\nsize:      %s B\nabi:       %s\nsha256:    %s\nurl:       %s\ninstalled: %s\n",
-             w[0], w[1], w[2], w[3], w[4], w[5], sys_stat(path) == 1 ? "yes" : "no");
+    if (w[6]) manifest_path(name, path, sizeof path); else bin_path(name, path, sizeof path);
+    m_printf("name:      %s\nversion:   %s\ntype:      %s\nsize:      %s B%s\nabi:       %s\nsha256:    %s\nurl:       %s\ninstalled: %s\n",
+             w[0], w[1], w[6] ? "bundle (several files)" : "program", w[2], w[6] ? " (manifest)" : "", w[3], w[4], w[5], sys_stat(path) == 1 ? "yes" : "no");
     return 0;
 }
 
@@ -356,7 +504,9 @@ static int cmd_fix(void)
         if (l > 0 && l < (int)sizeof name) {
             for (int i = 0; i < l; i++) name[i] = p[i];
             name[l] = 0; bin_path(name, path, sizeof path);
-            if (sys_stat(path) != 1) { for (int i = 0; i <= l; i++) todo[tl + i] = name[i]; tl += l + 1; n++; }
+            char mp[64]; manifest_path(name, mp, sizeof mp);
+            int missing = sys_stat(mp) == 1 ? !bundle_complete(name) : sys_stat(path) != 1;      // a bundle is complete when all its files exist
+            if (missing) { for (int i = 0; i <= l; i++) todo[tl + i] = name[i]; tl += l + 1; n++; }
         }
         p = q;
     }
