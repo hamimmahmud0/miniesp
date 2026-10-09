@@ -1,4 +1,4 @@
-# esp32-unix: context for AI agents
+# miniesp: context for AI agents
 
 > A unix-like operating system for the classic ESP32, built on ESP-IDF 5.3.2 (FreeRTOS). It exposes an SSH server with a Linux-style shell,
 > runs user programs written in C and compiled to WebAssembly then AOT-compiled for Xtensa (WAMR), keeps files in LittleFS, serves a website
@@ -11,7 +11,7 @@ Everything lives in `` (firmware + programs + website). The repo root also holds
 
 ## 1. What the system does
 
-- Boot: mounts LittleFS, reserves memory, connects to a predefined WiFi (credentials baked in from `.creds/`), falls back to an access point `esp32-unix` (192.168.4.1) when it cannot connect within 15 s.
+- Boot: mounts LittleFS, reserves memory, connects to a predefined WiFi (credentials baked in from `.creds/`), falls back to an access point `miniesp` (192.168.4.1) when it cannot connect within 15 s.
 - SSH server (wolfSSH, port 22), user `esp`, password auth only. Interactive shell (pty) and `ssh host "command"` (exec) both work. Exit status of exec commands is passed back.
 - Shell: unix-like built-ins (ls -la, cat, cp, mv, rm, mkdir -p, put, sha256sum, ps, free, df, ...), pipes and redirects, history, Ctrl-C.
 - Programs: `*.aot` files. Written in C against `programs/mini.h`, run by name from `~/.local/bin` (user) and `/bin` (system).
@@ -104,11 +104,11 @@ Plain files, one value each (a trailing newline is stripped). They are read at C
 | `wifi_ssid` | 2.4 GHz network to join (WPA2) | no STA attempt: boots straight into AP mode |
 | `wifi_password` | its password | empty |
 | `esp32_ssh_password` | default SSH password for user `esp` (default used in this project: `esp32`; weak, change it with `passwd` after first login) | **nobody can log in** (empty default = login refused until a password is set; set one before flashing) |
-| `esp32_ap_password` | WPA2 password (>= 8 chars) of the fallback AP `esp32-unix` | AP is open |
+| `esp32_ap_password` | WPA2 password (>= 8 chars) of the fallback AP `miniesp` | AP is open |
 | `esp32_hostkey.der` | SSH host key (ECDSA P-256, DER) | generated automatically with openssl on first configure |
 
 Create them: `mkdir -p .creds && printf 'MyNet' > .creds/wifi_ssid && printf 'secret' > .creds/wifi_password && printf 'esp32' > .creds/esp32_ssh_password && python3 -c "import secrets;print(secrets.token_urlsafe(9))" > .creds/esp32_ap_password`.
-The SSH user name `esp`, AP name `esp32-unix` and default hostname `esp-minix` are constants in `main/CMakeLists.txt` / `wifi_mgr.h`.
+The SSH user name `esp`, AP name `miniesp` and default hostname `esp-minix` are constants in `main/CMakeLists.txt` / `wifi_mgr.h`.
 Keep the same `esp32_hostkey.der` for all boards you flash if you want one SSH fingerprint; delete it before configuring to get a fresh key per fleet.
 A runtime password changed with `passwd` and network settings changed from the shell live in NVS and survive `app-flash` and `flash`, but not `erase_flash`.
 
@@ -129,9 +129,9 @@ Variants:
 - If auto-reset fails (no connection): hold BOOT, tap EN/RESET, release BOOT. Use a data-capable USB cable. Check `ls /dev/ttyUSB*` and group membership (`dialout`).
 - Serial console is 115200 baud. `idf.py monitor` needs a TTY; without one use a small pyserial script (Appendix A).
 
-First boot, what to expect (serial log): `fs: LittleFS mounted`, `aot: linear-memory slots: DRAM ok, IRAM ok`, `wifi: connecting to '<ssid>'...`, then `wifi: got ip a.b.c.d`, `wifi: mDNS: esp-minix.local`, `svc: service manager up`, `ssh: listening on port 22`, `www: web server on port 80`.
+First boot, what to expect (serial log): `fs: LittleFS mounted`, `aot: linear-memory slots: DRAM ok, IRAM missing` (expected), `wifi: connecting to '<ssid>'...`, then `wifi: got ip a.b.c.d`, `wifi: mDNS: esp-minix.local`, `svc: service manager up`, `ssh: listening on port 22`, `www: web server on port 80`.
 - Joined WiFi: `ssh esp@esp-minix.local` (mDNS: Linux needs avahi/nss-mdns; macOS/iOS/Android/Windows 10+ mostly work) or `ssh esp@<ip from the log>`. DHCP address unless a static IP is configured.
-- Could not join (wrong SSID, out of range): after 15 s it starts AP `esp32-unix` (WPA2 with `esp32_ap_password`, device 192.168.4.1). Join it and `ssh esp@192.168.4.1`, then `wifi set <ssid> <password>` and `reboot`.
+- Could not join (wrong SSID, out of range): after 15 s it starts AP `miniesp` (WPA2 with `esp32_ap_password`, device 192.168.4.1). Join it and `ssh esp@192.168.4.1`, then `wifi set <ssid> <password>` and `reboot`.
 - Verify: `ssh esp@host "uname"` prints `<hostname> 0.1 ESP-IDF v5.3.2 ...`; `ssh esp@host free`; `curl -s http://host/` (placeholder page, HTTP 200).
 - Without `idf.py` (e.g. flashing from a CI box): from `build/` run `python -m esptool --chip esp32 -b 460800 write_flash @flash_args` (the exact command is printed at the end of `idf.py build`).
 
@@ -145,7 +145,7 @@ Troubleshooting flash/boot:
 
 - **One program at a time.** A global run lock serializes top-level programs: an SSH command, a web CGI request or a service run each take it. SSH commands wait up to 10 s; web requests wait ~1 s then get `503 busy` (immediately if an interactive terminal program like `btop`/`sh` holds it); services log "skipped" if busy. A program started from inside another program (`sys_run`) is *nested* and shares the parent's lock. Only **one level of nesting** fits in memory.
 - **Memory is the scarce resource** (single-core build, no PSRAM): about 295 KB DRAM heap total (static `.bss` of the firmware is subtracted from ~328 KB data RAM), ~100 KB free at idle with an SSH session open, ~75 KB while a program runs. Check with the shell command `free` or `btop` (rows: DRAM, IRAM pool, AOT code, Flash FS). Avoid large static arrays in the firmware: they shrink the heap (a 19 KB service log table once made `sh` fail to load).
-- **A program's memory:** WASM linear memory is exactly **64 KB** (1 page, `--initial-memory=65536 --max-memory=65536`) and contains static data + heap-less + the 8 KB stack. It cannot grow. Two 64 KB slots are reserved at boot: slot 0 in DRAM (fast, for the top-level program), slot 1 in IRAM (byte access is emulated by an exception handler: slower, used by the nested child). A third concurrent program does not fit.
+- **A program's memory:** WASM linear memory is exactly **64 KB** (1 page, `--initial-memory=65536 --max-memory=65536`) and contains static data + heap-less + the 8 KB stack. It cannot grow. One 64 KB slot is reserved at boot in DRAM (fast, for the top-level program). A second slot in IRAM is attempted but cannot exist on this chip: the IRAM_8BIT pool is 98.8 KB but its largest block is 63,488 bytes (< 65,600), so `free` shows `Slots: DRAM free, IRAM missing`. Consequence: **a program cannot run another program** (`sh` running an `.aot` child fails). Text filters needed in scripts are firmware built-ins (`grep head wc`), which take priority over `/bin/*.aot`.
 - **AOT code** is copied into executable IRAM (the "AOT code" pool, ~240 KB, largest block ~100 KB). The `.aot` *file* also stays in RAM while the program runs (the AOT loader keeps pointers into it): files >= 16 KB are placed in the IRAM byte-accessible pool when they fit (pool ~38 KB free after the slot is reserved), else DRAM. `sh.aot` (37.7 KB) fits that pool by only ~280 bytes; keep programs small. Typical program: 3-10 KB AOT.
 - Programs run on a pthread (WAMR calls `pthread_self`; plain FreeRTOS tasks would assert). The worker stack is 16 KB (shell), 10 KB (CGI, services).
 - stdin/stdout/stderr (fd 0/1/2) are the terminal for interactive sessions, an RAM buffer or file in pipelines/redirects, or a log sink in services/CGI. Terminal output converts `\n` to `\r\n` automatically in pty sessions (not in `ssh host cmd`).
@@ -242,7 +242,7 @@ Other shell facts apps rely on: exit codes follow unix (127 not found, 130 Ctrl-
 There is no debugger. Useful loop: build -> `put` -> run over ssh -> read stderr/exit status. Tools: `ssh host free` (memory), `ssh host ps`, serial log (`mon.py`), `btop`.
 Common load/run errors (printed by the OS on stderr):
 - `load failed: ... allocate memory failed` : out of DRAM/IRAM while loading; the program or the system is too big or too fragmented right now. Check `free`; shrink the program; make sure no big service/web run is active; retry.
-- `instantiate failed: ... allocate linear memory failed` : both 64 KB slots are busy (3rd program, or nested twice).
+- `instantiate failed: ... allocate linear memory failed` : the single 64 KB slot is busy, i.e. a program was started from inside another program (e.g. an `.aot` run by `sh`). Use a built-in command there, or run the program from the normal shell.
 - A load error naming an import such as `sys_xxx` ("failed to link"): the program uses a `sys_*` call that this firmware does not have (firmware older than `mini.h`): reflash the firmware (`app-flash`).
 - `AOT module load failed: ... reference types is not enabled`: you built with a toolchain that emits ref-types; use the freestanding flags above.
 - A crash (`Guru Meditation ... LoadProhibited`) inside AOT code on first run: wrong wamrc flags (`--size-level` != 0), or wamrc/runtime version mismatch.
@@ -302,7 +302,7 @@ Natives run on the program's thread; they must not block for long without a way 
 3. **Freestanding wasm** (not wasi-libc): wasi-libc `printf` etc. cost ~25 KB; WASI filesystem calls are unsupported by WAMR's ESP-IDF platform layer (no `openat`); newer wasi-sdk libc objects use reference types.
 4. **WAMR needs pthreads**: `pthread_self()` asserts on plain FreeRTOS tasks. Programs always run on `esp_pthread` threads.
 5. **The AOT loader keeps pointers into the `.aot` file buffer** (`wasm_binary_freeable` is a no-op for AOT in 2.4.5): keep the buffer until unload.
-6. **Linear memory comes from `os_mmap`**; the firmware wraps `os_mmap/os_munmap` at link time (`-Wl,--wrap=...` in `main/CMakeLists.txt`) to hand out two slots reserved at boot (DRAM + IRAM) because an SSH session fragments DRAM and no 64 KB block remains later.
+6. **Linear memory comes from `os_mmap`**; the firmware wraps `os_mmap/os_munmap` at link time (`-Wl,--wrap=...` in `main/CMakeLists.txt`) to hand out the slot reserved at boot (DRAM; the IRAM slot cannot be created, see above) because an SSH session fragments DRAM and no 64 KB block remains later.
 7. **Single-core build** is required for `CONFIG_ESP32_IRAM_AS_8BIT_ACCESSIBLE_MEMORY`; allocate IRAM bytes with `MALLOC_CAP_IRAM_8BIT`. AOT text uses `MALLOC_CAP_EXEC` from the same physical pool.
 8. **wolfSSH quirks** (all handled in `ssh_server.c`; keep in mind when touching it): the resize-callback API is not built on ESP (terminal size is read from `ssh->widthChar/heightRows`); after a client channel-EOF `wolfSSH_stream_read` refuses to return buffered data and wolfSSH auto-replies EOF, which makes OpenSSH drop later output (a configure-time patch in `main/CMakeLists.txt` removes the auto-EOF; it is idempotent and re-applied after the component manager re-downloads); data that arrives together with the exec request must be buffered (`pre[]`); `wolfSSH_worker` is used (not `stream_read`) to process window updates during heavy output and after stdin EOF; subsystem requests (scp/sftp) are rejected immediately; the socket is non-blocking and closes gracefully (half-close, drain) so output is not lost to an RST.
 9. **Exec stdin is read lazily** (only when the command asks) so the client's EOF is not consumed early.
@@ -322,7 +322,7 @@ Natives run on the program's thread; they must not block for long without a way 
 
 ## 13. Known limitations / ideas
 
-Single user, one program at a time, one nesting level, no scp/sftp, no TLS/HTTPS, no public-key SSH auth, no sockets for AOT programs (a web server written as an AOT program would need `sys_socket/bind/listen/accept/recv/send`), no BLE/Bluetooth (RAM), no globbing/functions/background jobs in `sh`, programs limited to 64 KB of memory. Natural next steps: socket syscalls, per-task program contexts to allow concurrent programs, sftp, key auth, OTA updates, BLE (NimBLE) if RAM allows.
+Single user, one program at a time, no program-in-program (built-ins only inside `sh`), no scp/sftp, no TLS/HTTPS, no public-key SSH auth, no sockets for AOT programs (a web server written as an AOT program would need `sys_socket/bind/listen/accept/recv/send`), no BLE/Bluetooth (RAM), no globbing/functions/background jobs in `sh`, programs limited to 64 KB of memory. Natural next steps: socket syscalls, per-task program contexts to allow concurrent programs, sftp, key auth, OTA updates, BLE (NimBLE) if RAM allows.
 
 ## Appendix A: helper scripts (recreate; they live outside the repo in `~/esp/tools/`)
 

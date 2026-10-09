@@ -1,6 +1,6 @@
 <p align="center"><img src="assets/logo.png" alt="miniesp" width="420"></p>
 
-# miniesp (esp32-unix)
+# miniesp
 
 
 > New to this repo (human or AI agent)? `llms.txt` has the full flashing, toolchain and AOT-programming guide.
@@ -55,7 +55,7 @@ Prerequisites (one-time): ESP-IDF v5.3.x, an ESP32 on USB, a 2.4 GHz WiFi networ
 | Situation | Result |
 |---|---|
 | SSID configured and reachable (15 s timeout) | station mode, DHCP address |
-| No SSID, or cannot connect | access point **`esp32-unix`** (WPA2, password from `esp32_ap_password`), device at `192.168.4.1` |
+| No SSID, or cannot connect | access point **`miniesp`** (WPA2, password from `esp32_ap_password`), device at `192.168.4.1` |
 
 Change the network from the shell: `wifi set <ssid> [password]` then `reboot`; `wifi clear` returns to the built-in defaults; `wifi scan` lists networks.
 
@@ -82,6 +82,8 @@ You log in as **`esp`** (default password **`esp32`**, change it with `passwd`) 
 - Pipes and redirection work in the built-in shell too: `cmd1 | cmd2`, `< in`, `> out`, `>> out`, `2> err`, `2>&1`, and command lists `a ; b`, `a && b`, `a || b` (outside quotes).
 - `rm [-rf] path...` refuses to remove `/` (the whole filesystem).
 - Colors (terminal only): the prompt is green `user@host`, blue directory, and a red `$` after a failed command; `ls` shows directories in blue and `.aot` programs in green. Output sent to a pipe, a file or `ssh host "cmd"` stays plain.
+- Line editing: Left/Right, Home/End, Delete, Backspace, Ctrl-A/E/U/L/D, and Up/Down history; text is inserted at the cursor.
+- `grep [-vci]`, `head [-n N]` and `wc [-lwc]` are built into the firmware, so they work in pipelines and inside `sh`.
 - Arrow-up history, backspace, Ctrl-U/L/D work. **Ctrl-C stops a running program.**
 - Programs are `.aot` files, found in **`~/.local/bin`** (your own, searched first) and **`/bin`** (the system's). Run one by name: `hello`, `fib 30`, `ls /bin | grep aot | head -n 3`.
 - `sh` starts a bash-like shell (see below).
@@ -113,6 +115,10 @@ passwd                  # asks: current, new, retype (nothing is echoed); stored
 passwd --reset          # back to the password built into the firmware
 printf 'old\nnew\n' | ssh esp@host passwd     # non-interactive
 ```
+
+## Web console
+
+`http://<board>/` is the board's console: a Machine page (addresses with copy buttons, details, memory/program/storage meters, WiFi signal), a Services table and an Apps page (packages installed with `pkg`, with an Open button for apps that have a web UI, such as `wtms`). It reads two CGI programs: `/cgi-bin/sysinfo` (fast numbers, every 5 s) and `/cgi-bin/console` (firmware, clock, services, packages, programs; every 15 s). Light and dark themes follow the browser; the page is one self-contained file (`fs_image/www/index.html`, inline icons).
 
 ## Web hosting
 
@@ -192,6 +198,21 @@ service rm NAME | service reload
 
 `neofetch` prints a system summary next to the miniesp chip logo (firmware, uptime, CPU, memory pools, storage, network, clock); colors only on a terminal, and the logo is dropped on narrow terminals.
 
+## `wtms`: water tank management (package)
+
+A smart water tank manager (HC-SR04 level sensor, MQTT pump relay, Home Assistant discovery, web dashboard with login and settings). It is a **bundle package** (several files), installed with the package manager:
+```
+pkg update
+pkg install wtms        # program + dashboard pages + CGI copy, all verified (SHA-256) and put in place
+wtms setup              # interactive: web server port, dashboard password, MQTT broker/port/user, pump topic, tank size, pins, limits, time zone
+wtms setup --headless mqtt_host=192.168.0.50 mqtt_pass=SECRET web_port=80 length=100 width=100 height=100 full_cm=15 [--start]
+```
+`wtms setup` validates everything first, saves the configuration (NVS keys `tank.*`, so an older install's settings are picked up), sets the MQTT broker, optionally moves the board's **web server to another port** (kv key `www.port`, applied with `service restart www`; port 22 is refused), creates the `wtms` service (every 5 s), checks the sensor and only starts pump control if you say so (`--start` / `start=1` in headless mode). It never starts the service by default. Headless keys: `mqtt_host mqtt_port mqtt_user mqtt_pass web_port web_pw tz start shape length width diameter height litres full_cm empty_cm` plus every `wtms config` key (`name pump ha trig echo temp on_pct off_pct max_run ...`).
+CLI: `wtms status | read | config [k=v ...] | cmd reset|force_on[:min]|force_off[:min]|release | passwd NEW | discover`; dashboard `http://<board>[:port]/tank/`. `wtms` alone only prints usage. The package installs two builds of the same program: `wtms` (with `setup`, 58 KB) for you, and `wtmsd` (without `setup`, 40 KB) which the service and the web page (`/cgi-bin/wtms`) use, because a 58 KB program can fail to load while an SSH session has fragmented RAM (the dashboard login then answered "bad reply"). `pkg remove wtms` deletes the files and the service but keeps the settings in NVS and the data (`/www/tank/history.csv`). Details: `packages/wtms/README.md`.
+
+### Bundle packages (for package authors)
+A bundle is described by `packages/NAME/bundle.spec`; `tools/mkbundle.py packages/NAME` builds the program, copies the files to `pkgs/NAME/`, writes `pkgs/NAME/MANIFEST` (what `pkg install` downloads first) and the journal line `bundle NAME VERSION MANIFEST_URL sha256=... size=... abi=N`. Manifest lines: `dir PATH`, `file PATH URL sha256=.. size=..`, `copy SRC DEST`, `service NAME` (stopped and removed on `pkg remove`), `note TEXT`; paths must be under `/esp/`, `/www/`, `/etc/` or `/var/`. The whole manifest is validated before anything is written; files already present with the right hash are skipped, so `pkg install NAME` again (or `pkg fix`) repairs a damaged install.
+
 ## `nano` and `touch`
 
 `nano FILE` (`programs/nano.c`, 18 KB) is a small nano-style editor; run it from a real terminal (`ssh -t`, or a normal interactive login). The whole file is held in RAM, so files up to ~39 KB. Keys: arrows, Home/End, PgUp/PgDn, Delete, Backspace, Tab, Enter; `^O` write out (asks for the name), `^X` exit (asks to save), `^K` cut line, `^U` paste, `^W` search (wraps), `^A`/`^E` line start/end, `^V`/`^Y` page down/up, `^C` show the cursor position, `^L` redraw. A lost connection leaves without saving. `touch FILE...` creates empty files (`-c` creates nothing; the filesystem has no timestamps).
@@ -220,6 +241,7 @@ quoting (`'..'`, `".."`, `\x`), command substitution `$(cmd)`, arithmetic `$((i+
 `if/elif/else/fi`, `for x in ...; do ...; done`, `while ...; do ...; done`, `break`, `continue`,
 builtins `cd exit export unset shift read true false : test [ source`.
 Not supported: globbing (`*.txt`), functions, background jobs (`&` runs in the foreground), subshells.
+**Inside `sh` only built-in commands can run** (`ls cat cp mv rm mkdir echo grep head wc ...`, see `help`): `sh` itself holds the one program memory, so starting another `.aot` program from a script (`hello`, `fib`, your own programs) fails with "not enough RAM to run a program inside a program". Run such programs from the normal shell instead, or use the built-in `grep`, `head` and `wc` in pipelines.
 Ctrl-C stops the running command (and a running loop) and returns to the `sh` prompt.
 
 ```sh
@@ -288,7 +310,7 @@ or build one and install it without reflashing: `ssh esp@host "put ~/.local/bin/
 ### Things worth knowing (hard-won)
 - **Use `--size-level=0` when AOT-compiling for Xtensa** (the default in `build.sh`). Other levels leave the literal pool unrelocated and the code crashes at its first function.
 - **Freestanding programs are 5-8x smaller** than wasi-libc ones (`hello`: 3 KB of AOT instead of 30 KB). That matters: AOT code and the program file live in the ESP32's scarce RAM.
-- **Memory model.** Each program needs a 64 KB linear memory. An SSH session fragments DRAM, so two slots are reserved at boot: one in DRAM (the top-level program, fast) and one in IRAM (a nested program, e.g. a command run by `sh`; byte accesses are slower). This allows exactly one level of nesting. Large program files are also held in the IRAM pool. **Margin:** `sh.aot` (37.7 KB, built with `--opt-level=2`) fits that pool by only ~280 bytes; if it grows it silently falls back to DRAM, which still works but leaves less headroom (it ran correctly that way earlier in development). Check with `free` and keep `sh` small.
+- **Memory model.** Each program needs a 64 KB linear memory, and only **one** such memory exists: a slot reserved in DRAM at boot (an SSH session fragments DRAM, so it has to be reserved before anything else). A second slot in IRAM is attempted at boot but cannot be created on this chip: the IRAM pool is 98.8 KB in total, but its largest free block is 62 KB (63,488 bytes), less than the 64 KB (65,600 bytes) a slot needs. `free` shows the state (`Slots: DRAM free, IRAM missing`). So **one program runs at a time and a program cannot start another program** (see below). Large program files are held in the IRAM pool (or in DRAM when that is full); keep programs small. Check with `free`.
 - **One program at a time:** SSH commands, web CGI requests and services take turns on the runtime (a lock). Web requests wait ~1 s, then get 503; SSH commands wait up to 10 s.
 - The firmware runs **single-core** (`CONFIG_FREERTOS_UNICORE`): IRAM can only be used as byte-accessible memory in that mode.
 - WASI directory access does not work on ESP-IDF, which is why files go through `sys_open`.
@@ -311,7 +333,7 @@ tools/ota.sh     network firmware update
 - The web server (port 80) has no authentication.
 - Password authentication only (default `esp32`, which is weak: change it with `passwd`); no public keys, no scp/sftp.
 - Programs cannot be interrupted while they sit in a loop that never calls a `sys_*` function.
-- Only one level of nesting (a program running a command); `sh` inside `sh` inside a program will run out of memory.
+- **A program cannot start another program** (for example `sh` running `hello` or `fib`): a second 64 KB program memory does not fit in RAM (the IRAM pool has no 64 KB contiguous block, and the DRAM slot is taken by the first program). Inside `sh`, built-in commands (`ls cat grep head wc echo ...`) work; other `.aot` programs print "not enough RAM" there. Run them from the normal shell instead.
 - A program's file is held in memory while it runs, so keep programs small (a few KB is typical; `sh` is 38 KB).
 - Uploads run at roughly 30 KB/s; 200 KB files verified bit-exact (SHA-256), in both directions.
 
