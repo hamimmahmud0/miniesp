@@ -67,7 +67,8 @@ You log in as **`esp`** (default password **`esp32`**, change it with `passwd`) 
 `help` lists the built-ins: `ls cd pwd cat echo mkdir rmdir rm mv cp put sha256sum df free uptime ps uname hostname whoami ifconfig wifi passwd sleep clear reboot exit`.
 
 - `ls -la` (also `-l`, `-a`) shows hidden files, permissions and sizes, sorted. `cd` alone goes home; `~` works in paths.
-- Pipes and redirection work in the built-in shell too: `cmd1 | cmd2`, `< in`, `> out`, `>> out`, `2> err`, `2>&1`.
+- Pipes and redirection work in the built-in shell too: `cmd1 | cmd2`, `< in`, `> out`, `>> out`, `2> err`, `2>&1`, and command lists `a ; b`, `a && b`, `a || b` (outside quotes).
+- `rm [-rf] path...` refuses to remove `/` (the whole filesystem).
 - Colors (terminal only): the prompt is green `user@host`, blue directory, and a red `$` after a failed command; `ls` shows directories in blue and `.aot` programs in green. Output sent to a pipe, a file or `ssh host "cmd"` stays plain.
 - Arrow-up history, backspace, Ctrl-U/L/D work. **Ctrl-C stops a running program.**
 - Programs are `.aot` files, found in **`~/.local/bin`** (your own, searched first) and **`/bin`** (the system's). Run one by name: `hello`, `fib 30`, `ls /bin | grep aot | head -n 3`.
@@ -219,7 +220,7 @@ while [ $i -lt 3 ]; do echo "hello $i"; i=$((i+1)); done
 
 ## `pkg`: package manager
 
-`pkg update` downloads the journals listed in `/etc/pkg/sources.list` (default: `journals/main.journal` of this repo on GitHub, following `journal` links to other journals, max 16 journals / depth 3) and writes the merged list to `/var/pkg/index`; `pkg list [WORD]` shows it (`[i]` = installed), `pkg sources` prints the sources. `pkg install NAME` downloads, checks size, SHA-256 and `abi=` against the journal entry, and installs to `~/.local/bin`; `pkg remove NAME`, `pkg info NAME`. Journal format: see `journals/main.journal`; `tools/mkjournal.sh DIR BASE_URL` prints `pkg` lines (with SHA-256 and size) for a directory of `.aot` files.
+`pkg update` downloads the journals listed in `/etc/pkg/sources.list` (default: `journals/main.journal` of this repo on GitHub, following `journal` links to other journals, max 16 journals / depth 3) and writes the merged list to `/var/pkg/index`; `pkg list [WORD]` shows it (`[i]` = installed), `pkg sources` prints the sources. `pkg` is part of the firmware image: if `/bin/pkg.aot` or `/etc/pkg/sources.list` is missing at boot (for example after the filesystem was wiped) it is written back automatically. `pkg install NAME` downloads, checks size, SHA-256 and `abi=` against the journal entry, and installs to `~/.local/bin`; `pkg remove NAME`, `pkg info NAME`. Installed names are also kept in the key-value store (`pkg.inst`), so `pkg fix` can reinstall them after the filesystem was lost (`pkg update` runs first if there is no index). Journal format: see `journals/main.journal`; `tools/mkjournal.sh DIR BASE_URL` prints `pkg` lines (with SHA-256 and size) for a directory of `.aot` files.
 Downloads use the `sys_http_get(url, path, max_bytes, timeout_ms)` syscall (ABI 4: native HTTPS with the built-in CA bundle, so the clock must be set by NTP, and the repo must be public for `raw.githubusercontent.com`).
 
 ## Writing a program
@@ -315,6 +316,7 @@ tools/ota.sh 192.168.0.52            # ssh "ota --sha256 ..." < build/esp32_unix
 ssh esp@host "ota status"            # running slot, version, valid / pending verification
 ssh esp@host "ota rollback"          # go back to the previous image
 ```
+After the board is back, `tools/ota.sh` runs `tools/sync.sh`: it copies programs from `fs_image/` that are missing or different (`/bin/*.aot`, the sysinfo CGI), restores missing config files (motd, pkg sources, service units, `~/.profile`, `~/.shrc`, the homepage) without overwriting yours, and runs `pkg fix` (`NO_SYNC=1` skips it). An OTA only replaces the firmware, not the filesystem.
 The board writes the other slot, checks the SHA-256, switches and reboots. A new image is "pending verification" and is confirmed once WiFi and sshd are up (~60 s); a crash or watchdog reset before that makes the bootloader fall back to the old image (the rollback path itself has not been exercised on hardware).
 Notes: the update is written with sequential erases (an up-front erase of 1.4 MB starves the idle task and trips the watchdog); hardware SHA is disabled (`CONFIG_MBEDTLS_HARDWARE_SHA=n`) because the hardware engine aborted while an image was streaming in. Changing `partitions.csv` again needs a USB flash and wipes the filesystem.
 

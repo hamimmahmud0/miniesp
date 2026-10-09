@@ -4,7 +4,9 @@
 //   pkg info NAME       details of one package
 //   pkg install NAME    download, verify (size + SHA-256 + abi) and install to ~/.local/bin/NAME.aot
 //   pkg remove NAME     delete ~/.local/bin/NAME.aot
+//   pkg fix             reinstall recorded packages that are missing (e.g. after the filesystem was wiped)
 //   pkg sources         show the sources
+// Installed names are also kept in the persistent key-value store (key pkg.inst), which survives a wiped filesystem.
 // Journal format: see journals/main.journal. Needs sys_http_get (ABI 4) and a correct clock (TLS certificates).
 #include "mini.h"
 
@@ -191,6 +193,45 @@ static int cmd_sources(void)
     return 0;
 }
 
+/* ---- installed-package record (NVS, survives a filesystem wipe) ---- */
+#define INST_KEY "pkg.inst"
+static char inst[600];
+static void inst_load(void) { int n = sys_kv_get(INST_KEY, inst, (int)sizeof inst - 1); inst[n > 0 ? n : 0] = 0; }
+static int inst_has(const char *name)
+{
+    int nl = (int)m_strlen(name);
+    for (const char *p = inst; *p; ) {
+        while (*p == ' ') p++;
+        const char *q = p; while (*q && *q != ' ') q++;
+        if (q - p == nl) { int i = 0; while (i < nl && p[i] == name[i]) i++; if (i == nl) return 1; }
+        p = q;
+    }
+    return 0;
+}
+static void inst_add(const char *name)
+{
+    inst_load();
+    int l = (int)m_strlen(inst), nl = (int)m_strlen(name);
+    if (inst_has(name) || l + nl + 2 >= (int)sizeof inst) return;
+    if (l) inst[l++] = ' ';
+    for (int i = 0; i <= nl; i++) inst[l + i] = name[i];
+    sys_kv_set(INST_KEY, inst, (int)m_strlen(inst));
+}
+static void inst_del(const char *name)
+{
+    inst_load();
+    char out[600]; int o = 0, nl = (int)m_strlen(name);
+    for (const char *p = inst; *p; ) {
+        while (*p == ' ') p++;
+        const char *q = p; while (*q && *q != ' ') q++;
+        int same = q - p == nl; for (int i = 0; same && i < nl; i++) if (p[i] != name[i]) same = 0;
+        if (!same && q > p) { if (o) out[o++] = ' '; for (const char *c = p; c < q; c++) out[o++] = *c; }
+        p = q;
+    }
+    out[o] = 0;
+    if (o) sys_kv_set(INST_KEY, out, o); else sys_kv_del(INST_KEY);
+}
+
 /* ---- SHA-256 (streaming over a file) ---- */
 static const uint32_t K[64] = {
     0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,
@@ -279,6 +320,7 @@ static int cmd_install(const char *name)
     char path[64]; bin_path(name, path, sizeof path);
     sys_mkdir("/esp/.local"); sys_mkdir("/esp/.local/bin");
     if (sys_rename(tmp, path)) { m_eprintf("pkg: cannot write %s\n", path); sys_unlink(tmp); return 1; }
+    inst_add(name);
     m_printf("installed %s %s -> %s (sha256 ok)\n", name, w[1], path);
     return 0;
 }
@@ -288,6 +330,7 @@ static int cmd_remove(const char *name)
     char path[64]; bin_path(name, path, sizeof path);
     if (!valid_name(name) || sys_stat(path) != 1) { m_eprintf("pkg: %s is not installed\n", name); return 1; }
     if (sys_unlink(path)) { m_eputs("pkg: cannot remove\n"); return 1; }
+    inst_del(name);
     m_printf("removed %s\n", name);
     return 0;
 }
@@ -302,14 +345,39 @@ static int cmd_info(const char *name)
     return 0;
 }
 
+static int cmd_fix(void)
+{
+    inst_load();
+    if (!inst[0]) { m_puts("pkg: no packages recorded\n"); return 0; }
+    static char todo[600]; int n = 0, tl = 0;
+    for (const char *p = inst; *p; ) {                       // names whose file is missing
+        while (*p == ' ') p++;
+        const char *q = p; while (*q && *q != ' ') q++;
+        char name[40], path[64]; int l = (int)(q - p);
+        if (l > 0 && l < (int)sizeof name) {
+            for (int i = 0; i < l; i++) name[i] = p[i];
+            name[l] = 0; bin_path(name, path, sizeof path);
+            if (sys_stat(path) != 1) { for (int i = 0; i <= l; i++) todo[tl + i] = name[i]; tl += l + 1; n++; }
+        }
+        p = q;
+    }
+    if (!n) { m_puts("pkg: all recorded packages are installed\n"); return 0; }
+    m_printf("pkg: %d missing package(s), reinstalling\n", n);
+    if (sys_stat(INDEX) != 1 && cmd_update() == 1) return 1;
+    int bad = 0;
+    for (int i = 0, off = 0; i < n; i++) { if (cmd_install(todo + off)) bad++; off += (int)m_strlen(todo + off) + 1; }
+    return bad ? 1 : 0;
+}
+
 int main(int argc, char **argv)
 {
     if (argc >= 2 && !m_strcmp(argv[1], "update")) return cmd_update();
     if (argc >= 2 && !m_strcmp(argv[1], "list")) return cmd_list(argc >= 3 ? argv[2] : 0);
+    if (argc >= 2 && !m_strcmp(argv[1], "fix")) return cmd_fix();
     if (argc >= 3 && !m_strcmp(argv[1], "install")) return cmd_install(argv[2]);
     if (argc >= 3 && !m_strcmp(argv[1], "remove")) return cmd_remove(argv[2]);
     if (argc >= 3 && !m_strcmp(argv[1], "info")) return cmd_info(argv[2]);
     if (argc >= 2 && !m_strcmp(argv[1], "sources")) return cmd_sources();
-    m_eputs("usage: pkg update | list [WORD] | info NAME | install NAME | remove NAME | sources\n");
+    m_eputs("usage: pkg update | list [WORD] | info NAME | install NAME | remove NAME | fix | sources\n");
     return 1;
 }

@@ -1,11 +1,32 @@
 #include "fs.h"
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 #include <sys/stat.h>
 #include "esp_littlefs.h"
 #include "esp_log.h"
 
 static const char *TAG = "fs";
+
+// pkg (the package manager) is part of the firmware: it is written to /bin when missing, so a wiped or reformatted
+// filesystem can always be rebuilt with "pkg update; pkg fix". (fs_image/bin/pkg.aot is embedded at build time.)
+extern const uint8_t pkg_aot_start[] asm("_binary_pkg_aot_start");
+extern const uint8_t pkg_aot_end[] asm("_binary_pkg_aot_end");
+static const char DEFAULT_SOURCES[] =
+    "# pkg sources: one journal URL per line (the first one is the default \"mother\" journal).\n"
+    "https://raw.githubusercontent.com/hamimmahmud0/miniesp/main/journals/main.journal\n";
+
+static void write_if_missing(const char *path, const void *data, size_t n)
+{
+    struct stat st;
+    if (!stat(path, &st) && st.st_size > 0) return;
+    FILE *f = fopen(path, "wb");
+    if (!f) { ESP_LOGW(TAG, "cannot create %s", path); return; }
+    size_t w = fwrite(data, 1, n, f);
+    fclose(f);
+    if (w != n) { remove(path); ESP_LOGW(TAG, "short write to %s", path); }
+    else ESP_LOGI(TAG, "restored %s (%u bytes)", path, (unsigned)n);
+}
 
 bool fs_mount(void)
 {
@@ -23,11 +44,17 @@ bool fs_mount(void)
     mkdir(FS_BASE "/bin", 0777);
     mkdir(FS_BASE "/etc", 0777);
     mkdir(FS_BASE "/tmp", 0777);
+    mkdir(FS_BASE "/etc/services", 0777);
+    mkdir(FS_BASE "/etc/pkg", 0777);
+    mkdir(FS_BASE "/var", 0777);
+    mkdir(FS_BASE "/var/pkg", 0777);                 // package index cache
     mkdir(FS_BASE "/www", 0777);                     // web root
     mkdir(FS_BASE "/www/cgi-bin", 0777);
     mkdir(FS_BASE FS_HOME, 0777);                    // home directory (~)
     mkdir(FS_BASE FS_HOME "/.local", 0777);
     mkdir(FS_BASE FS_HOME "/.local/bin", 0777);      // user-installed programs
+    write_if_missing(FS_BASE "/bin/pkg.aot", pkg_aot_start, pkg_aot_end - pkg_aot_start);
+    write_if_missing(FS_BASE "/etc/pkg/sources.list", DEFAULT_SOURCES, sizeof DEFAULT_SOURCES - 1);
     return true;
 }
 

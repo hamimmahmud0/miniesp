@@ -222,14 +222,28 @@ static int rm_rec(const char *host)
 
 static int cmd_rm(sh_t *s, int c, char **v)
 {
-    bool rec = false; int rc = 0;
+    bool rec = false, force = false; int rc = 0, nfiles = 0;
     for (int i = 1; i < c; i++) {
-        if (!strcmp(v[i], "-r") || !strcmp(v[i], "-rf")) { rec = true; continue; }
+        if (v[i][0] == '-' && v[i][1]) {                          // -r -R -f and combinations such as -rf
+            bool ok = true;
+            for (const char *p = v[i] + 1; *p; p++) {
+                if (*p == 'r' || *p == 'R') rec = true;
+                else if (*p == 'f') force = true;
+                else ok = false;
+            }
+            if (!ok) { sh_eprintf(s, "rm: invalid option '%s'\nusage: rm [-rf] path...\n", v[i]); return 2; }
+            continue;
+        }
+        nfiles++;
         char host[300]; host_of(s, v[i], host, sizeof host);
-        if ((rec ? rm_rec(host) : unlink(host)) && !(rec && errno == ENOENT)) {
+        if (!strcmp(host, FS_BASE) || !strcmp(host, FS_BASE "/")) {   // never wipe the whole filesystem
+            sh_eprintf(s, "rm: refusing to remove '/' (%s)\n", v[i]); rc = 1; continue;
+        }
+        if ((rec ? rm_rec(host) : unlink(host)) && !((rec || force) && errno == ENOENT)) {
             sh_eprintf(s, "rm: %s: %s\n", v[i], strerror(errno)); rc = 1;
         }
     }
+    if (!nfiles && !force) { sh_eprintf(s, "usage: rm [-rf] path...\n"); return 2; }
     return rc;
 }
 
@@ -839,7 +853,7 @@ typedef struct {
     bool out_app, err_to_out;
 } stage_t;
 
-static int run_line(sh_t *s, char *line)
+static int run_line1(sh_t *s, char *line)
 {
     tok_t tk[MAXARGS * 2];
     char *wbuf = malloc(strlen(line) + MAXARGS * 2 + 2);
@@ -905,6 +919,35 @@ static int run_line(sh_t *s, char *line)
     s->in = save_in; s->out = save_out; s->err = save_err;
     free(wbuf);
     free(st);
+    return rc;
+}
+
+// Command lists: "a ; b", "a && b", "a || b" (outside quotes). Each part is a normal pipeline.
+static int run_line(sh_t *s, char *line)
+{
+    int rc = 0;
+    char *seg = line;
+    char quote = 0, pending = ';';                      // pending: operator that precedes seg (';' for the first)
+    for (char *p = line;; p++) {
+        char c = *p;
+        if (quote) { if (c == quote) quote = 0; else if (c == '\\' && quote == '"' && p[1]) p++; continue; }
+        if (c == '\'' || c == '"') { quote = c; continue; }
+        if (c == '\\' && p[1]) { p++; continue; }
+        char op = 0; int oplen = 0;
+        if (c == ';') { op = ';'; oplen = 1; }
+        else if (c == '&' && p[1] == '&') { op = '&'; oplen = 2; }
+        else if (c == '|' && p[1] == '|') { op = '|'; oplen = 2; }
+        if (!op && c) continue;
+        if (c) *p = 0;
+        bool run = pending == ';' || (pending == '&' && rc == 0) || (pending == '|' && rc != 0);
+        if (run) {
+            size_t sl = strspn(seg, " \t");
+            if (seg[sl]) rc = run_line1(s, seg);
+            else if (pending != ';' || c) { sh_eprintf(s, "syntax error: missing command\n"); rc = 2; }
+        }
+        if (!c || s->quit || s->t->closed) break;
+        pending = op; seg = p + oplen; p += oplen - 1;
+    }
     return rc;
 }
 
