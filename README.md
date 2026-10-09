@@ -19,6 +19,18 @@ you ──ssh──▶ sshd task ──▶ shell (pthread) ──▶ built-ins (
                                                          └── LittleFS (2.3 MB)
 ```
 
+## Screenshots
+
+<p align="center">
+  <img src="assets/ssh.png" alt="neofetch over SSH on the miniesp board" width="640"><br>
+  <em>An SSH login to the board: colored prompt and <code>neofetch</code> with the miniesp chip logo.</em>
+</p>
+
+<p align="center">
+  <img src="assets/btop.png" alt="btop system monitor running on the ESP32" width="820"><br>
+  <em><code>btop</code>: CPU, memory pools (DRAM, IRAM, AOT code, flash FS) and the live task table, running on the ESP32 itself.</em>
+</p>
+
 ## Quick start
 
 Prerequisites (one-time): ESP-IDF v5.3.x, an ESP32 on USB, a 2.4 GHz WiFi network.
