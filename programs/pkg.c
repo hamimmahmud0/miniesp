@@ -49,29 +49,28 @@ static int split(char *line, char **w, int max)
 }
 
 // Read the next line of fd into buf (without '\n'). Returns 0 at EOF. Over-long lines are cut.
-static int rbuf_n, rbuf_i; static char rbuf[128];
-static int next_line(int fd, char *buf, int cap)
+typedef struct { char b[128]; int n, i; } rd_t;       // one per open file: nested readers must not share state
+static int next_line(int fd, rd_t *r, char *buf, int cap)
 {
     int o = 0, got = 0;
     for (;;) {
-        if (rbuf_i >= rbuf_n) { rbuf_n = sys_read(fd, rbuf, sizeof rbuf); rbuf_i = 0; if (rbuf_n <= 0) { rbuf_n = 0; break; } }
-        char c = rbuf[rbuf_i++]; got = 1;
+        if (r->i >= r->n) { r->n = sys_read(fd, r->b, sizeof r->b); r->i = 0; if (r->n <= 0) { r->n = 0; break; } }
+        char c = r->b[r->i++]; got = 1;
         if (c == '\n') break;
         if (o < cap - 1) buf[o++] = c;
     }
     buf[o] = 0;
     return got;
 }
-static void reader_reset(void) { rbuf_n = rbuf_i = 0; }
 
 static int index_has(const char *name)
 {
     int fd = sys_open(INDEX_TMP, 0), found = 0;
     if (fd < 0) return 0;
-    reader_reset();
+    rd_t rd = { .n = 0, .i = 0 };
     char line[LINE_LEN];
     int nl = (int)m_strlen(name);
-    while (!found && next_line(fd, line, sizeof line)) {
+    while (!found && next_line(fd, &rd, line, sizeof line)) {
         if (starts(line, name) && line[nl] == ' ') found = 1;
     }
     sys_close(fd);
@@ -109,10 +108,10 @@ static int cmd_update(void)
     sys_mkdir("/var"); sys_mkdir("/var/pkg");
     int sfd = sys_open(SRC_FILE, 0);
     if (sfd < 0) { m_eputs("pkg: no " SRC_FILE "\n"); return 1; }
-    reader_reset();
+    rd_t rd = { .n = 0, .i = 0 };
     char line[LINE_LEN];
     njournals = 0;
-    while (next_line(sfd, line, sizeof line)) {
+    while (next_line(sfd, &rd, line, sizeof line)) {
         char *w[2]; int nw = split(line, w, 2);
         if (nw < 1 || w[0][0] == '#') continue;
         if (valid_url(w[0])) queue(w[0], 0); else m_eprintf("pkg: bad source ignored: %s\n", w[0]);
@@ -135,9 +134,9 @@ static int cmd_update(void)
         fetched++;
         int fd = sys_open(JOURNAL, 0);
         if (fd < 0) { failed++; continue; }
-        reader_reset();
+        rd_t rd = { .n = 0, .i = 0 };
         int ln = 0;
-        while (next_line(fd, line, sizeof line)) {
+        while (next_line(fd, &rd, line, sizeof line)) {
             ln++;
             char *w[12]; int nw = split(line, w, 12);
             if (nw < 1 || w[0][0] == '#') continue;
@@ -167,9 +166,9 @@ static int cmd_list(const char *filter)
 {
     int fd = sys_open(INDEX, 0);
     if (fd < 0) { m_eputs("pkg: no package list yet; run: pkg update\n"); return 1; }
-    reader_reset();
+    rd_t rd = { .n = 0, .i = 0 };
     char line[LINE_LEN], path[64]; int n = 0;
-    while (next_line(fd, line, sizeof line)) {
+    while (next_line(fd, &rd, line, sizeof line)) {
         char *w[6]; if (split(line, w, 6) < 6) continue;          // name version size abi sha url
         if (filter && !contains(w[0], filter)) continue;
         m_snprintf(path, sizeof path, "/esp/.local/bin/%s.aot", w[0]);
@@ -285,9 +284,9 @@ static int find_pkg(const char *name, char *line, int cap, char **w)
 {
     int fd = sys_open(INDEX, 0);
     if (fd < 0) { m_eputs("pkg: no package list yet; run: pkg update\n"); return -1; }
-    reader_reset();
+    rd_t rd = { .n = 0, .i = 0 };
     int found = -2;
-    while (next_line(fd, line, cap)) {
+    while (next_line(fd, &rd, line, cap)) {
         if (split(line, w, 6) >= 6 && !m_strcmp(w[0], name)) { found = 0; break; }
     }
     sys_close(fd);
