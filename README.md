@@ -178,6 +178,10 @@ service rm NAME | service reload
 
 `neofetch` prints a system summary next to the miniesp chip logo (firmware, uptime, CPU, memory pools, storage, network, clock); colors only on a terminal, and the logo is dropped on narrow terminals.
 
+## `nano` and `touch`
+
+`nano FILE` (`programs/nano.c`, 18 KB) is a small nano-style editor; run it from a real terminal (`ssh -t`, or a normal interactive login). The whole file is held in RAM, so files up to ~39 KB. Keys: arrows, Home/End, PgUp/PgDn, Delete, Backspace, Tab, Enter; `^O` write out (asks for the name), `^X` exit (asks to save), `^K` cut line, `^U` paste, `^W` search (wraps), `^A`/`^E` line start/end, `^V`/`^Y` page down/up, `^C` show the cursor position, `^L` redraw. A lost connection leaves without saving. `touch FILE...` creates empty files (`-c` creates nothing; the filesystem has no timestamps).
+
 ## `btop`: system monitor (AOT program)
 
 `btop` is a full-screen, btop-style monitor (`programs/btop.c`, 18 KB): total CPU usage with a history graph, memory bars
