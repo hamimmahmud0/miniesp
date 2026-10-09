@@ -68,6 +68,7 @@ You log in as **`esp`** (default password **`esp32`**, change it with `passwd`) 
 
 - `ls -la` (also `-l`, `-a`) shows hidden files, permissions and sizes, sorted. `cd` alone goes home; `~` works in paths.
 - Pipes and redirection work in the built-in shell too: `cmd1 | cmd2`, `< in`, `> out`, `>> out`, `2> err`, `2>&1`.
+- Colors (terminal only): the prompt is green `user@host`, blue directory, and a red `$` after a failed command; `ls` shows directories in blue and `.aot` programs in green. Output sent to a pipe, a file or `ssh host "cmd"` stays plain.
 - Arrow-up history, backspace, Ctrl-U/L/D work. **Ctrl-C stops a running program.**
 - Programs are `.aot` files, found in **`~/.local/bin`** (your own, searched first) and **`/bin`** (the system's). Run one by name: `hello`, `fib 30`, `ls /bin | grep aot | head -n 3`.
 - `sh` starts a bash-like shell (see below).

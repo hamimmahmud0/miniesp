@@ -81,13 +81,17 @@ typedef struct { char name[72]; bool dir; long size; } ls_ent_t;
 
 static int ls_cmp(const void *a, const void *b) { return strcmp(((const ls_ent_t *)a)->name, ((const ls_ent_t *)b)->name); }
 
+static bool out_color(sh_t *s) { return s->out && s->out->kind == IO_TERM && s->out->t && s->out->t->pty; }   // colors only on a terminal
+
 static void ls_print(sh_t *s, const ls_ent_t *e, bool lng)
 {
-    if (!lng) { sh_printf(s, "%s%s\n", e->name, e->dir ? "/" : ""); return; }
     size_t l = strlen(e->name);
     bool exe = !e->dir && l > 4 && !strcmp(e->name + l - 4, ".aot");
-    sh_printf(s, "%s 1 %s %s %8ld %s%s\n", e->dir ? "drwxr-xr-x" : exe ? "-rwxr-xr-x" : "-rw-r--r--", CRED_SSH_USER,
-              CRED_SSH_USER, e->size, e->name, e->dir ? "/" : "");
+    bool col = out_color(s);
+    const char *c0 = col ? (e->dir ? "\x1b[1;34m" : exe ? "\x1b[1;32m" : "") : "", *c1 = col && (e->dir || exe) ? "\x1b[0m" : "";
+    if (!lng) { sh_printf(s, "%s%s%s%s\n", c0, e->name, e->dir ? "/" : "", c1); return; }
+    sh_printf(s, "%s 1 %s %s %8ld %s%s%s%s\n", e->dir ? "drwxr-xr-x" : exe ? "-rwxr-xr-x" : "-rw-r--r--", CRED_SSH_USER,
+              CRED_SSH_USER, e->size, c0, e->name, e->dir ? "/" : "", c1);
 }
 
 static int cmd_ls(sh_t *s, int c, char **v)
@@ -946,13 +950,15 @@ void shell_run(term_t *t, const char *user)
         }
         fclose(pf);
     }
+    int last_rc = 0;
     while (!s.quit && !t->closed) {
         pretty_cwd(s.cwd, pc, sizeof pc);
-        snprintf(prompt, sizeof prompt, "%s@%s:%s$ ", user, net_hostname(), pc);
+        if (t->pty) snprintf(prompt, sizeof prompt, "\x1b[1;32m%s@%s\x1b[0m:\x1b[1;34m%s\x1b[0m%s$\x1b[0m ", user, net_hostname(), pc, last_rc ? "\x1b[1;31m" : "");
+        else snprintf(prompt, sizeof prompt, "%s@%s:%s$ ", user, net_hostname(), pc);
         int n = term_readline(t, prompt, line, sizeof line, true);
         if (n == -1) break;                 // Ctrl-D / disconnect
         if (n <= 0) continue;
-        run_line(&s, line);
+        last_rc = run_line(&s, line);
     }
     strlcpy(s_cwd, s.cwd, sizeof s_cwd);
     term_puts(t, "logout\n");
