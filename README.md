@@ -331,6 +331,9 @@ partitions.csv   4 MB flash: nvs, otadata, two 1.4 MB app slots (OTA), LittleFS 
 tools/ota.sh     network firmware update
 ```
 
+## Contributing
+Contributions and co-maintainers are welcome: see `CONTRIBUTING.md` (including the port checklist), `MAINTAINERS.md`, `BOARDS.md` (pins and tested boards) and `docs/PACKAGES.md` (write and publish a package in about 10 minutes). Good first issues are labelled on GitHub.
+
 ## Known limits
 - **One SSH session at a time.** A second client waits until the first disconnects (RAM is the constraint).
 - **AP mode does not retry the network.** If the router was down when the device booted, it stays in AP mode until rebooted (`reboot` over the AP, or power-cycle). The AP and SSH-over-AP are verified up to "broadcasting and listening", not with a full login from a client.
