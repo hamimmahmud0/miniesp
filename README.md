@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/logo.png" alt="miniesp" width="420"></p>
+
 # miniesp (esp32-unix)
 
 
@@ -168,6 +170,8 @@ service rm NAME | service reload
   ```
   Example included (disabled): `heartbeat` (blinks the LED every 5 s).
 * **Limit:** all programs share one runtime, so a service program holds it while it runs. Prefer `Interval=` services (they run briefly); a long-running daemon makes SSH programs and web requests wait for their turn.
+
+`neofetch` prints a system summary next to the miniesp chip logo (firmware, uptime, CPU, memory pools, storage, network, clock); colors only on a terminal, and the logo is dropped on narrow terminals.
 
 ## `btop`: system monitor (AOT program)
 

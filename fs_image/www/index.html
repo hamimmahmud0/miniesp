@@ -1,9 +1,13 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>esp-minix</title>
+<title>miniesp</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22%3E%3Crect x=%2212%22 y=%2212%22 width=%2240%22 height=%2240%22 rx=%227%22 fill=%22%230f766e%22/%3E%3Cpath d=%22M22 23l11 9-11 9%22 fill=%22none%22 stroke=%22%23fff%22 stroke-width=%225%22/%3E%3Crect x=%2235%22 y=%2239%22 width=%2211%22 height=%225%22 fill=%22%23f97316%22/%3E%3Cg fill=%22%231f2937%22%3E%3Crect x=%2221%22 y=%223%22 width=%224%22 height=%229%22/%3E%3Crect x=%2239%22 y=%223%22 width=%224%22 height=%229%22/%3E%3Crect x=%2221%22 y=%2252%22 width=%224%22 height=%229%22/%3E%3Crect x=%2239%22 y=%2252%22 width=%224%22 height=%229%22/%3E%3Crect x=%223%22 y=%2221%22 width=%229%22 height=%224%22/%3E%3Crect x=%223%22 y=%2239%22 width=%229%22 height=%224%22/%3E%3Crect x=%2252%22 y=%2221%22 width=%229%22 height=%224%22/%3E%3Crect x=%2252%22 y=%2239%22 width=%229%22 height=%224%22/%3E%3C/g%3E%3C/svg%3E">
 <style>
-:root{--bg:#f4f6f8;--card:#fff;--fg:#17202a;--mute:#6b7785;--acc:#2b8cd8;--ok:#2e9e5b;--bar:#e3e8ed}
-@media(prefers-color-scheme:dark){:root{--bg:#10161c;--card:#1a232c;--fg:#e6edf3;--mute:#8b98a5;--bar:#2a3641}}
+:root{--bg:#f6f8f9;--card:#fff;--fg:#1f2937;--mute:#64748b;--acc:#0f766e;--ok:#0f766e;--bar:#e2e8f0;--hi:#f97316;--pin:#1f2937;--body:#0f766e;--chev:#fff}
+@media(prefers-color-scheme:dark){:root{--bg:#111827;--card:#1a2332;--fg:#e5e7eb;--mute:#94a3b8;--acc:#5eead4;--ok:#5eead4;--bar:#2a3547;--pin:#9ca3af;--body:#5eead4;--chev:#111827}}
+.logo .pins rect{fill:var(--pin)}.logo .body{fill:var(--body)}.logo .chev{stroke:var(--chev)}
+.mono,h1{font-family:ui-monospace,"JetBrains Mono",SFMono-Regular,Menlo,Consolas,monospace}
+h1 b{color:var(--acc)}header svg{align-self:center}.sub code{font-size:13px}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px system-ui,sans-serif}
 main{max-width:760px;margin:0 auto;padding:16px}
 header{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:6px 0 14px}
@@ -18,7 +22,7 @@ a.tile{display:block;text-decoration:none;color:inherit}a.tile:hover{outline:2px
 code{background:var(--bar);padding:1px 6px;border-radius:4px;font-size:14px}
 ul{margin:6px 0 0;padding-left:18px}li{margin:3px 0}
 </style></head><body><main>
-<header><h1 id="host">esp-minix</h1><span class="sub"><span class="dot" id="dot"></span><span id="status">connecting&hellip;</span></span></header>
+<header><svg class="logo" viewBox="0 0 64 64" width="44" height="44" role="img" aria-label="miniesp"><g class="pins"><rect x="21" y="3" width="4" height="9" rx="2"/><rect x="30" y="3" width="4" height="9" rx="2"/><rect x="39" y="3" width="4" height="9" rx="2"/><rect x="21" y="52" width="4" height="9" rx="2"/><rect x="30" y="52" width="4" height="9" rx="2"/><rect x="39" y="52" width="4" height="9" rx="2"/><rect x="3" y="21" width="9" height="4" rx="2"/><rect x="3" y="30" width="9" height="4" rx="2"/><rect x="3" y="39" width="9" height="4" rx="2"/><rect x="52" y="21" width="9" height="4" rx="2"/><rect x="52" y="30" width="9" height="4" rx="2"/><rect x="52" y="39" width="9" height="4" rx="2"/></g><rect class="body" x="12" y="12" width="40" height="40" rx="7"/><path class="chev" d="M22 23l11 9-11 9" fill="none" stroke-width="4.5"/><rect x="35" y="39" width="11" height="4.5" fill="#f97316"/></svg><h1>mini<b>esp</b></h1><span class="sub"><span class="dot" id="dot"></span><span id="status">connecting&hellip;</span> &middot; <span class="mono" id="host">esp-minix</span></span></header>
 <div class="grid">
  <div class="card"><h2>Uptime</h2><div class="big" id="up">--</div><div class="sub" id="cpu">--</div></div>
  <div class="card"><h2>Network</h2><div class="big" id="ip">--</div><div class="sub" id="wifi">--</div></div>
@@ -42,7 +46,7 @@ async function sys(){
     const r=await fetch('/cgi-bin/sysinfo?'+Date.now());
     if(r.status===503){$('status').textContent='busy, retrying…';return}
     const s=await r.json();
-    $('host').textContent=s.host; document.title=s.host;
+    $('host').textContent=s.host; document.title=s.host+' · miniesp';
     $('up').textContent=dur(s.uptime); $('cpu').textContent=s.mhz+' MHz · '+s.tasks+' tasks';
     $('ip').textContent=s.ip; $('wifi').textContent=s.ssid+' ('+s.rssi+' dBm)';
     const used=s.dram_total-s.dram_free;

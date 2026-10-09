@@ -54,8 +54,17 @@ static esp_err_t send_text(httpd_req_t *req, const char *status, const char *bod
 /* ---------------- static files ---------------- */
 static const char DEFAULT_PAGE[] =
     "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
-    "<title>esp32-unix</title><body style='font:16px system-ui;max-width:40em;margin:2em auto;padding:0 1em'>"
-    "<h1>esp32-unix web server</h1><p>It works, but there is no <code>/www/index.html</code> yet.</p>"
+    "<title>miniesp</title><style>body{font:16px system-ui;max-width:40em;margin:2em auto;padding:0 1em;color:#1f2937}"
+    "h1{font-family:ui-monospace,Menlo,Consolas,monospace;display:flex;align-items:center;gap:12px}h1 b{color:#0f766e}"
+    "code{background:#e2e8f0;padding:1px 6px;border-radius:4px}@media(prefers-color-scheme:dark){body{background:#111827;color:#e5e7eb}"
+    "h1 b{color:#5eead4}code{background:#2a3547}}</style><body>"
+    "<h1><svg width=44 height=44 viewBox='0 0 64 64'><g fill='#94a3b8'><rect x=21 y=3 width=4 height=9 rx=2 /><rect x=30 y=3 width=4 height=9 rx=2 />"
+    "<rect x=39 y=3 width=4 height=9 rx=2 /><rect x=21 y=52 width=4 height=9 rx=2 /><rect x=30 y=52 width=4 height=9 rx=2 /><rect x=39 y=52 width=4 height=9 rx=2 />"
+    "<rect x=3 y=21 width=9 height=4 rx=2 /><rect x=3 y=30 width=9 height=4 rx=2 /><rect x=3 y=39 width=9 height=4 rx=2 />"
+    "<rect x=52 y=21 width=9 height=4 rx=2 /><rect x=52 y=30 width=9 height=4 rx=2 /><rect x=52 y=39 width=9 height=4 rx=2 /></g>"
+    "<rect x=12 y=12 width=40 height=40 rx=7 fill='#0f766e' /><path d='M22 23l11 9-11 9' fill=none stroke=#fff stroke-width=4.5 />"
+    "<rect x=35 y=39 width=11 height=4.5 fill='#f97316' /></svg><span>mini<b>esp</b></span></h1>"
+    "<p>The web server works, but there is no <code>/www/index.html</code> yet.</p>"
     "<p>Put your site in <code>/www</code> (for example <code>ssh esp@host \"put /www/index.html\" &lt; index.html</code>) "
     "and programs in <code>/www/cgi-bin</code> to serve dynamic data at <code>/cgi-bin/NAME</code>.</p>";
 
