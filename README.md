@@ -203,9 +203,9 @@ i=0
 while [ $i -lt 3 ]; do echo "hello $i"; i=$((i+1)); done
 ```
 
-## `pkg`: package manager (in progress)
+## `pkg`: package manager
 
-`pkg update` downloads the journals listed in `/etc/pkg/sources.list` (default: `journals/main.journal` of this repo on GitHub, following `journal` links to other journals, max 16 journals / depth 3) and writes the merged list to `/var/pkg/index`; `pkg list [WORD]` shows it (`[i]` = installed), `pkg sources` prints the sources. Installing is not implemented yet. Journal format: see `journals/main.journal`; `tools/mkjournal.sh DIR BASE_URL` prints `pkg` lines (with SHA-256 and size) for a directory of `.aot` files.
+`pkg update` downloads the journals listed in `/etc/pkg/sources.list` (default: `journals/main.journal` of this repo on GitHub, following `journal` links to other journals, max 16 journals / depth 3) and writes the merged list to `/var/pkg/index`; `pkg list [WORD]` shows it (`[i]` = installed), `pkg sources` prints the sources. `pkg install NAME` downloads, checks size, SHA-256 and `abi=` against the journal entry, and installs to `~/.local/bin`; `pkg remove NAME`, `pkg info NAME`. Journal format: see `journals/main.journal`; `tools/mkjournal.sh DIR BASE_URL` prints `pkg` lines (with SHA-256 and size) for a directory of `.aot` files.
 Downloads use the `sys_http_get(url, path, max_bytes, timeout_ms)` syscall (ABI 4: native HTTPS with the built-in CA bundle, so the clock must be set by NTP, and the repo must be public for `raw.githubusercontent.com`).
 
 ## Writing a program

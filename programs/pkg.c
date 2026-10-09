@@ -1,6 +1,9 @@
 // pkg: package manager (step 1: read the package list).
 //   pkg update          fetch the journals listed in /etc/pkg/sources.list (following "journal" links) into /var/pkg/index
 //   pkg list [WORD]     list the known packages (optionally only names containing WORD); [i] = installed
+//   pkg info NAME       details of one package
+//   pkg install NAME    download, verify (size + SHA-256 + abi) and install to ~/.local/bin/NAME.aot
+//   pkg remove NAME     delete ~/.local/bin/NAME.aot
 //   pkg sources         show the sources
 // Journal format: see journals/main.journal. Needs sys_http_get (ABI 4) and a correct clock (TLS certificates).
 #include "mini.h"
@@ -188,11 +191,125 @@ static int cmd_sources(void)
     return 0;
 }
 
+/* ---- SHA-256 (streaming over a file) ---- */
+static const uint32_t K[64] = {
+    0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,
+    0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+    0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,
+    0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+    0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,
+    0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2 };
+#define ROR(x, n) (((x) >> (n)) | ((x) << (32 - (n))))
+static void sha_block(uint32_t h[8], const unsigned char *p)
+{
+    uint32_t w[64], a, b, c, d, e, f, g, hh;
+    for (int i = 0; i < 16; i++) w[i] = (uint32_t)p[4*i] << 24 | (uint32_t)p[4*i+1] << 16 | (uint32_t)p[4*i+2] << 8 | p[4*i+3];
+    for (int i = 16; i < 64; i++) {
+        uint32_t s0 = ROR(w[i-15], 7) ^ ROR(w[i-15], 18) ^ (w[i-15] >> 3), s1 = ROR(w[i-2], 17) ^ ROR(w[i-2], 19) ^ (w[i-2] >> 10);
+        w[i] = w[i-16] + s0 + w[i-7] + s1;
+    }
+    a = h[0]; b = h[1]; c = h[2]; d = h[3]; e = h[4]; f = h[5]; g = h[6]; hh = h[7];
+    for (int i = 0; i < 64; i++) {
+        uint32_t t1 = hh + (ROR(e, 6) ^ ROR(e, 11) ^ ROR(e, 25)) + ((e & f) ^ (~e & g)) + K[i] + w[i];
+        uint32_t t2 = (ROR(a, 2) ^ ROR(a, 13) ^ ROR(a, 22)) + ((a & b) ^ (a & c) ^ (b & c));
+        hh = g; g = f; f = e; e = d + t1; d = c; c = b; b = a; a = t1 + t2;
+    }
+    h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+}
+// Hex SHA-256 of a file into hex[65]; returns 0, or -1 if it cannot be read.
+static int sha256_file(const char *path, char *hex)
+{
+    int fd = sys_open(path, 0);
+    if (fd < 0) return -1;
+    uint32_t h[8] = { 0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19 };
+    unsigned char blk[64]; uint32_t total = 0; int n = 0, r;
+    while ((r = sys_read(fd, blk + n, 64 - n)) > 0) {
+        n += r; total += (uint32_t)r;
+        if (n == 64) { sha_block(h, blk); n = 0; }
+    }
+    sys_close(fd);
+    blk[n++] = 0x80;
+    if (n > 56) { while (n < 64) blk[n++] = 0; sha_block(h, blk); n = 0; }
+    while (n < 56) blk[n++] = 0;
+    uint32_t bits_hi = total >> 29, bits_lo = total << 3;
+    for (int i = 0; i < 4; i++) { blk[56 + i] = (unsigned char)(bits_hi >> (24 - 8*i)); blk[60 + i] = (unsigned char)(bits_lo >> (24 - 8*i)); }
+    sha_block(h, blk);
+    for (int i = 0; i < 8; i++) for (int j = 0; j < 8; j++) hex[i*8 + j] = "0123456789abcdef"[(h[i] >> (28 - 4*j)) & 15];
+    hex[64] = 0;
+    return 0;
+}
+
+// Find NAME in the index; fills the 6 words (name version size abi sha url) of line. Returns 0 if found.
+static int find_pkg(const char *name, char *line, int cap, char **w)
+{
+    int fd = sys_open(INDEX, 0);
+    if (fd < 0) { m_eputs("pkg: no package list yet; run: pkg update\n"); return -1; }
+    reader_reset();
+    int found = -2;
+    while (next_line(fd, line, cap)) {
+        if (split(line, w, 6) >= 6 && !m_strcmp(w[0], name)) { found = 0; break; }
+    }
+    sys_close(fd);
+    if (found) m_eprintf("pkg: no package named '%s'\n", name);
+    return found;
+}
+
+static void bin_path(const char *name, char *path, int n) { m_snprintf(path, n, "/esp/.local/bin/%s.aot", name); }
+
+static int cmd_install(const char *name)
+{
+    char line[LINE_LEN], *w[6];
+    if (find_pkg(name, line, sizeof line, w)) return 1;
+    int size = m_atoi(w[2]), abi = m_atoi(w[3]);
+    if (abi > sys_abi()) { m_eprintf("pkg: %s needs syscall ABI %d, this firmware has %d: update the firmware first\n", name, abi, sys_abi()); return 1; }
+    m_printf("fetch %s (%d B)\n", w[5], size);
+    sys_mkdir("/var"); sys_mkdir("/var/pkg");
+    const char *tmp = "/var/pkg/dl.tmp";
+    int r = sys_http_get(w[5], tmp, size, 20000);
+    if (r < 0) {
+        m_eprintf("pkg: download failed (%d)%s\n", r, r == -3 ? ": larger than the journal says" : r == -404 ? ": not found" : "");
+        return r == -4 ? 130 : 1;
+    }
+    char hex[65];
+    if (r != size || sha256_file(tmp, hex) || m_strcmp(hex, w[4])) {
+        m_eprintf("pkg: verification failed (size %d, expected %d; sha256 %s)\n", r, size, r == size ? hex : "-");
+        sys_unlink(tmp);
+        return 1;
+    }
+    char path[64]; bin_path(name, path, sizeof path);
+    sys_mkdir("/esp/.local"); sys_mkdir("/esp/.local/bin");
+    if (sys_rename(tmp, path)) { m_eprintf("pkg: cannot write %s\n", path); sys_unlink(tmp); return 1; }
+    m_printf("installed %s %s -> %s (sha256 ok)\n", name, w[1], path);
+    return 0;
+}
+
+static int cmd_remove(const char *name)
+{
+    char path[64]; bin_path(name, path, sizeof path);
+    if (!valid_name(name) || sys_stat(path) != 1) { m_eprintf("pkg: %s is not installed\n", name); return 1; }
+    if (sys_unlink(path)) { m_eputs("pkg: cannot remove\n"); return 1; }
+    m_printf("removed %s\n", name);
+    return 0;
+}
+
+static int cmd_info(const char *name)
+{
+    char line[LINE_LEN], *w[6], path[64];
+    if (find_pkg(name, line, sizeof line, w)) return 1;
+    bin_path(name, path, sizeof path);
+    m_printf("name:      %s\nversion:   %s\nsize:      %s B\nabi:       %s\nsha256:    %s\nurl:       %s\ninstalled: %s\n",
+             w[0], w[1], w[2], w[3], w[4], w[5], sys_stat(path) == 1 ? "yes" : "no");
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     if (argc >= 2 && !m_strcmp(argv[1], "update")) return cmd_update();
     if (argc >= 2 && !m_strcmp(argv[1], "list")) return cmd_list(argc >= 3 ? argv[2] : 0);
+    if (argc >= 3 && !m_strcmp(argv[1], "install")) return cmd_install(argv[2]);
+    if (argc >= 3 && !m_strcmp(argv[1], "remove")) return cmd_remove(argv[2]);
+    if (argc >= 3 && !m_strcmp(argv[1], "info")) return cmd_info(argv[2]);
     if (argc >= 2 && !m_strcmp(argv[1], "sources")) return cmd_sources();
-    m_eputs("usage: pkg update | list [WORD] | sources\n");
+    m_eputs("usage: pkg update | list [WORD] | info NAME | install NAME | remove NAME | sources\n");
     return 1;
 }
