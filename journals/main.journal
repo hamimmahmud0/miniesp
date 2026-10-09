@@ -9,4 +9,4 @@
 #
 # journal https://example.org/other.journal
 # pkg hello 1.0 https://raw.githubusercontent.com/hamimmahmud0/miniesp/main/pkgs/hello.aot sha256=0000 size=3012 abi=3
-pkg curl 1.0 https://raw.githubusercontent.com/hamimmahmud0/miniesp/main/pkgs/curl.aot sha256=3525caf12d4dd9b9f8cecbda75b05cb5aa9813b976a1074272b47c5d33ef29b4 size=4920 abi=4
+pkg curl 1.0 https://raw.githubusercontent.com/hamimmahmud0/miniesp/main/pkgs/curl.aot sha256=f13905bb46cac8bd17212263814ea16d3d2ff8a6edff91b7ff8ed15b01eb7e8b size=6172 abi=4
