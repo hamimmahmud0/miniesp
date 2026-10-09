@@ -29,6 +29,7 @@
 #include "esp_random.h"
 #include "esp_system.h"
 #include "esp_app_desc.h"
+#include "httpget.h"
 #include "kv.h"
 #include "mqtt.h"
 #include "timesync.h"
@@ -320,7 +321,7 @@ static int sys_uart_read_(wasm_exec_env_t env, int port, uint8_t *buf, int n, in
 static int sys_uart_close_(wasm_exec_env_t env, int port) { return drv_uart_close(port); }
 
 /* ---------------- Phase 4: files, sockets, time, kv, mqtt, system ---------------- */
-#define SYS_ABI 3                                    // bump when a syscall is added; programs may check sys_abi()
+#define SYS_ABI 4                                    // bump when a syscall is added; programs may check sys_abi()
 
 static int vhost(const char *path, char *host, size_t n)
 {
@@ -438,6 +439,14 @@ static int sys_dns_(wasm_exec_env_t env, const char *host, char *buf, int n)   /
     inet_ntop(AF_INET, &((struct sockaddr_in *)res->ai_addr)->sin_addr, buf, n);
     freeaddrinfo(res);
     return (int)strlen(buf);
+}
+
+/* HTTPS/HTTP download straight into a file (TLS cannot live in a 64 KB program). ABI 4. */
+static bool http_cancel_(void *env) { return interrupted((wasm_exec_env_t)env); }
+static int sys_http_get_(wasm_exec_env_t env, const char *url, const char *path, int max_bytes, int timeout_ms)
+{
+    char h[300]; vhost(path, h, sizeof h);
+    return http_download(url, h, max_bytes, timeout_ms, http_cancel_, env);
 }
 
 /* time */
@@ -558,6 +567,7 @@ static NativeSymbol s_natives[] = {
     { "sys_tcp_connect", sys_tcp_connect_, "($ii)i" }, { "sys_tcp_listen", sys_tcp_listen_, "(i)i" },
     { "sys_tcp_accept", sys_tcp_accept_, "(ii)i" }, { "sys_sock_timeout", sys_sock_timeout_, "(ii)i" },
     { "sys_udp_open", sys_udp_open_, "(i)i" }, { "sys_udp_sendto", sys_udp_sendto_, "(i$i*~)i" }, { "sys_dns", sys_dns_, "($*~)i" },
+    { "sys_http_get", sys_http_get_, "($$ii)i" },
     { "sys_time", sys_time_, "()i" }, { "sys_time_state", sys_time_state_, "()i" }, { "sys_localtime", sys_localtime_, "(i*~)i" },
     { "sys_tz", sys_tz_, "($)i" },
     { "sys_abi", sys_abi_, "()i" }, { "sys_random", sys_random_, "()i" }, { "sys_reboot", sys_reboot_, "()i" },

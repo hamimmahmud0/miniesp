@@ -1,0 +1,12 @@
+# miniesp mother journal -- the default package source (see /etc/pkg/sources.list on the board).
+#
+# Plain text, one entry per line, fields separated by spaces, '#' starts a comment.
+#   journal URL                                       link to another journal (followed by "pkg update")
+#   pkg NAME VERSION URL sha256=HEX size=BYTES abi=N  a program (.aot) installed to ~/.local/bin/NAME.aot
+# NAME: letters, digits, '_' '-'.  abi=N is the minimum sys_abi() the program needs.
+# If a name appears in several journals, the first one read wins (this journal is read first).
+# Generate pkg lines for a directory of .aot files with:  tools/mkjournal.sh DIR BASE_URL
+#
+# journal https://example.org/other.journal
+# pkg hello 1.0 https://raw.githubusercontent.com/hamimmahmud0/miniesp/main/pkgs/hello.aot sha256=0000 size=3012 abi=3
+pkg curl 1.0 https://raw.githubusercontent.com/hamimmahmud0/miniesp/main/pkgs/curl.aot sha256=3525caf12d4dd9b9f8cecbda75b05cb5aa9813b976a1074272b47c5d33ef29b4 size=4920 abi=4

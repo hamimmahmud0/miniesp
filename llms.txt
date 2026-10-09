@@ -16,11 +16,11 @@ Everything lives in `` (firmware + programs + website). The repo root also holds
 - Shell: unix-like built-ins (ls -la, cat, cp, mv, rm, mkdir -p, put, sha256sum, ps, free, df, ...), pipes and redirects, history, Ctrl-C.
 - Programs: `*.aot` files. Written in C against `programs/mini.h`, run by name from `~/.local/bin` (user) and `/bin` (system).
 - `sh`: a bash-like shell that is itself an AOT program (pipes, redirects, `&& || ;`, variables, `$(...)`, `$((...))`, if/for/while, scripts).
-- Web server (port 80, native C): serves `~/www`; `/cgi-bin/NAME?args` runs `~/www/cgi-bin/NAME.aot`.
+- Web server (port 80, native C): serves `/www`; `/cgi-bin/NAME?args` runs `/www/cgi-bin/NAME.aot`.
 - Service manager (`service`, `systemctl`): native services sshd/www/mdns + unit files `/etc/services/*.service` that run AOT programs on a schedule.
 - Hardware access: GPIO, ADC1, PWM (LEDC), DAC, I2C, UART1/2, microsecond timer; shell commands `gpio adc pwm dac i2c` and matching `sys_*` calls.
 - mDNS name `esp-minix.local` (configurable), static IP or DHCP (configurable), password changeable at runtime (`passwd`).
-- Bundled programs: hello fib greet wc grep head blink sh btop sonar sysinfo. No website or CGI program is installed by default (the web server shows a placeholder page until you publish `~/www/index.html`).
+- Bundled programs: hello fib greet wc grep head blink sh btop sonar sysinfo. No website or CGI program is installed by default (the web server shows a placeholder page until you publish `/www/index.html`).
 
 ## 2. Repository layout
 
@@ -53,7 +53,8 @@ llms.txt                    this file
   fs_image/                 packed into the LittleFS partition at build time (becomes the device's "/"):
     bin/                    system programs (*.aot, produced by programs/build.sh)
     etc/motd, etc/services/ message of the day, example unit file (heartbeat, disabled)
-    esp/                    the user's home (~ = /esp): .local/bin (user programs, starts empty), www/ (website), www/cgi-bin/
+    esp/                    the user's home (~ = /esp): .local/bin (user programs, starts empty)
+    www/                    web root (/www): website + cgi-bin/
     tmp/
   dist/                     scratch output (old build artefacts); ignore
 relay_node/                 unrelated ESP8266 Arduino project
@@ -177,7 +178,7 @@ int main(int argc, char **argv)        // return value = exit status (0 = succes
 ```
 cd programs
 ./build.sh NAME.c               # -> ../fs_image/bin/NAME.aot (flashed with the OS as a system program)
-OUT=../fs_image/esp/www/cgi-bin ./build.sh NAME.c    # for a web CGI program
+OUT=../fs_image/www/cgi-bin ./build.sh NAME.c    # for a web CGI program
 OUT=/tmp/out ./build.sh NAME.c  # anywhere else
 ./build.sh                      # all programs
 ```
@@ -231,7 +232,7 @@ Other shell facts apps rely on: exit codes follow unix (127 not found, 130 Ctrl-
 
 ### 8.5 Recipes
 - **Filter** (stdin -> stdout): loop `n = sys_read(0, buf, sizeof buf)` until 0, `sys_write(1, buf, n)`. See `head.c`, `grep.c`, `wc.c` (they also accept file names).
-- **Sensor as a JSON web endpoint:** print one JSON line, build with `OUT=../fs_image/esp/www/cgi-bin` (or `put` it to `~/www/cgi-bin/NAME.aot`), then `GET /cgi-bin/NAME?-j+-s+3` (query words separated by `+` or `&` become argv; allowed chars `[A-Za-z0-9_.,:=@/-]`). Optional CGI header: first line `Content-Type: text/csv` + blank line; otherwise JSON is detected by a leading `{`/`[`. Max run time 8 s. See `sonar.c`, `sysinfo.c`.
+- **Sensor as a JSON web endpoint:** print one JSON line, build with `OUT=../fs_image/www/cgi-bin` (or `put` it to `/www/cgi-bin/NAME.aot`), then `GET /cgi-bin/NAME?-j+-s+3` (query words separated by `+` or `&` become argv; allowed chars `[A-Za-z0-9_.,:=@/-]`). Optional CGI header: first line `Content-Type: text/csv` + blank line; otherwise JSON is detected by a leading `{`/`[`. Max run time 8 s. See `sonar.c`, `sysinfo.c`.
 - **Background job:** write the program to run briefly, then a unit file with `Interval=` (section 9.4).
 - **Full-screen UI:** `sys_isatty(1)` check, `sys_sigint(1)`, alternate screen `\x1b[?1049h`, build a frame in a static buffer and `m_write` it once, loop on `sys_getkey(ms)`, restore the terminal on exit (also on Ctrl-C, which arrives as -3). See `btop.c`.
 - **Timing a pulse:** poll `sys_gpio_read` and stamp with `sys_micros` (see `sonar.c`); WiFi interrupts add jitter, so take the median of several samples.
@@ -258,7 +259,7 @@ Network: `hostname NAME` (live; reachable as NAME.local), `ifconfig` (status), `
 Hardware: `gpio 2 1`, `gpio 5 in`, `adc 34`, `pwm 2 1000 25`, `pwm 2 off`, `dac 25 128`, `i2c scan|read ADDR N|write ADDR BYTES...`.
 
 ### 9.2 Web server
-Native C in `main/www.c` (esp_http_server): `GET /path` serves `~/www/path` (`/` and directories serve `index.html`; correct MIME types incl. wasm, svg, json, css, js, images); `GET /cgi-bin/NAME?args` runs `~/www/cgi-bin/NAME.aot` (stdout = response; 503 when busy; 504 after 8 s). No authentication, GET only, no percent-decoding. Publish with `ssh host "put ~/www/index.html" < index.html`.3 Drivers (firmware side)
+Native C in `main/www.c` (esp_http_server): `GET /path` serves `/www/path` (`/` and directories serve `index.html`; correct MIME types incl. wasm, svg, json, css, js, images); `GET /cgi-bin/NAME?args` runs `/www/cgi-bin/NAME.aot` (stdout = response; 503 when busy; 504 after 8 s). No authentication, GET only, no percent-decoding. Publish with `ssh host "put /www/index.html" < index.html`.3 Drivers (firmware side)
 `main/drivers.c` is the one place that touches ESP-IDF drivers; `aot_run.c` and `shell.c` call `drv_*`. Legacy `driver/i2c.h` is used (deprecated warning is harmless).
 
 ### 9.4 Services (systemd-like)
@@ -272,10 +273,10 @@ ExecStart=/bin/sonar -j -s 3                     # program + args; bare names ar
 Interval=10                                      # seconds between runs (timer style); 0 = run once/daemon
 Restart=no                                       # no | always | on-failure (only for Interval=0)
 RestartSec=5
-Output=/esp/www/sonar.log                        # also append to this file (reset when > 32 KB)
+Output=/www/sonar.log                        # also append to this file (reset when > 32 KB)
 Enabled=true                                     # start at boot
 ```
-Create: write the file (`ssh host "put /etc/services/X.service" < X.service` then `service reload`) or `service new X --every 10 --output ~/www/x.log -- sonar -j`. RAM log (1 KB ring, lines prefixed `[uptime-seconds]`) via `service log X`. A long-running (`Interval=0`) service holds the run lock for its whole life (SSH programs and web requests then wait/503): prefer short interval jobs. Max 8 services.
+Create: write the file (`ssh host "put /etc/services/X.service" < X.service` then `service reload`) or `service new X --every 10 --output /www/x.log -- sonar -j`. RAM log (1 KB ring, lines prefixed `[uptime-seconds]`) via `service log X`. A long-running (`Interval=0`) service holds the run lock for its whole life (SSH programs and web requests then wait/503): prefer short interval jobs. Max 8 services.
 
 ### 9.5 Adding a new syscall (extending the firmware)
 1. Implement the hardware/OS function (put driver code in `main/drivers.c` + `drivers.h`; add the component to `REQUIRES` in `main/CMakeLists.txt` if it is a new IDF component).
@@ -360,7 +361,7 @@ Environment script `~/esp/env.sh`: `export PATH=$HOME/.miniconda3/envs/idfpy/bin
 # update firmware, keep files         idf.py -p /dev/ttyUSB0 build app-flash
 # wipe everything on a board          esptool.py --chip esp32 -p /dev/ttyUSB0 erase_flash
 # new program                         edit programs/x.c ; programs/build.sh x.c ; ssh esp@H "put ~/.local/bin/x.aot" < fs_image/bin/x.aot
-# new web endpoint                    OUT=../fs_image/esp/www/cgi-bin programs/build.sh x.c ; put to ~/www/cgi-bin/x.aot ; curl http://H/cgi-bin/x
+# new web endpoint                    OUT=../fs_image/www/cgi-bin programs/build.sh x.c ; put to /www/cgi-bin/x.aot ; curl http://H/cgi-bin/x
 # new background job                  service new x --every 60 -- x ; service enable x ; service start x
 # find the board on the network       ping esp-minix.local ; or read the serial log ("got ip ...")
 # decode a crash                      xtensa-esp32-elf-addr2line -pfiaC -e build/esp32_unix.elf 0xPC...

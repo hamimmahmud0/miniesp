@@ -60,7 +60,7 @@ void wd_diagnostics(const char *why);
 static void diagnostics(const char *why) { wd_diagnostics(why); }
 void wd_diagnostics(const char *why)
 {
-    char host[100]; snprintf(host, sizeof host, "%s%s/www/stall.log", FS_BASE, FS_HOME);
+    char host[100]; snprintf(host, sizeof host, "%s/www/stall.log", FS_BASE);
     FILE *f = fopen(host, "a");
     long sz = f ? (fseek(f, 0, SEEK_END), ftell(f)) : 0;
     if (f && sz > 12000) { fclose(f); f = fopen(host, "w"); }                  // keep it small

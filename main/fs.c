@@ -23,6 +23,8 @@ bool fs_mount(void)
     mkdir(FS_BASE "/bin", 0777);
     mkdir(FS_BASE "/etc", 0777);
     mkdir(FS_BASE "/tmp", 0777);
+    mkdir(FS_BASE "/www", 0777);                     // web root
+    mkdir(FS_BASE "/www/cgi-bin", 0777);
     mkdir(FS_BASE FS_HOME, 0777);                    // home directory (~)
     mkdir(FS_BASE FS_HOME "/.local", 0777);
     mkdir(FS_BASE FS_HOME "/.local/bin", 0777);      // user-installed programs

@@ -99,19 +99,19 @@ The firmware runs an HTTP server on **port 80** (native C, on ESP-IDF's HTTP ser
 
 | URL | Serves |
 |---|---|
-| `/`, `/anything.ext` | files from **`~/www`** (the image ships a board homepage `index.html` showing uptime, memory, storage and network; it polls `/cgi-bin/sysinfo`) (`/` and directories serve `index.html`); correct MIME types for html, css, js, json, images, text, wasm, ... |
-| `/cgi-bin/NAME?arg+arg` | runs **`~/www/cgi-bin/NAME.aot`** with arguments `arg arg` and returns its stdout |
+| `/`, `/anything.ext` | files from **`/www`** (the image ships a board homepage `index.html` showing uptime, memory, storage and network; it polls `/cgi-bin/sysinfo`) (`/` and directories serve `index.html`); correct MIME types for html, css, js, json, images, text, wasm, ... |
+| `/cgi-bin/NAME?arg+arg` | runs **`/www/cgi-bin/NAME.aot`** with arguments `arg arg` and returns its stdout |
 
 ```
-ssh esp@host "put ~/www/index.html" < index.html          # publish a page
-ssh esp@host "put ~/www/cgi-bin/hello.aot" < hello.aot    # publish a dynamic endpoint (build it like any program)
+ssh esp@host "put /www/index.html" < index.html          # publish a page
+ssh esp@host "put /www/cgi-bin/hello.aot" < hello.aot    # publish a dynamic endpoint (build it like any program)
 curl http://esp-minix.local/cgi-bin/NAME?arg+arg           # the program's stdout (JSON, text, ...)
 ```
 A CGI program just prints its output. It may start with `Content-Type: text/csv` and a blank line (CGI style); otherwise JSON is detected by a leading `{`/`[`, everything else is `text/plain`.
 Arguments may contain letters, digits and `_ . , : = @ / -` only; up to 24 words and ~600 characters, and the whole request line is limited to 240 characters (`CONFIG_HTTPD_MAX_URI_LEN`), so send big forms in pieces. A program that runs longer than 8 s is stopped (504). If an SSH program is running, a request waits ~1 s for its turn, then gets **503 busy** with `Retry-After` (so while `btop` or `sh` is open in a terminal, web requests that need the program runtime get 503 until you close it).
 There is **no authentication** on port 80: use it on a trusted network.
 
-`www` (shell command) shows the server status and URLs. With no `~/www/index.html` the server shows a built-in placeholder page; the image ships the homepage and `sysinfo` as CGI; everything else you add. `programs/sysinfo.c` (system status as JSON) is a small example of a CGI program.
+`www` (shell command) shows the server status and URLs. With no `/www/index.html` the server shows a built-in placeholder page; the image ships the homepage and `sysinfo` as CGI; everything else you add. `programs/sysinfo.c` (system status as JSON) is a small example of a CGI program.
 
 ## Sonar (HC-SR04)
 
@@ -151,7 +151,7 @@ service status NAME                # details and the last log lines
 service start|stop|restart NAME
 service enable|disable NAME        # start at boot or not (persisted)
 service log NAME                   # the service's output (RAM, timestamped by uptime seconds)
-service new NAME --every 10 --output ~/www/x.log --desc "text" -- PROGRAM ARGS     # create a unit file
+service new NAME --every 10 --output /www/x.log --desc "text" -- PROGRAM ARGS     # create a unit file
 service rm NAME | service reload
 ```
 * **Built-in services:** `sshd` (stopping it only stops *new* connections; your session stays open and `service start sshd` brings it back), `www`, `mdns`.
@@ -163,7 +163,7 @@ service rm NAME | service reload
   Interval=10                                      # run every N seconds (timer style); 0 = run once / daemon
   Restart=no                                       # no | always | on-failure   (for Interval=0)
   RestartSec=5
-  Output=/esp/www/sonar.log                        # also append the output to this file (kept under 32 KB; ~/www files are served over HTTP)
+  Output=/www/sonar.log                        # also append the output to this file (kept under 32 KB; /www files are served over HTTP)
   Enabled=true
   ```
   Example included (disabled): `heartbeat` (blinks the LED every 5 s).
@@ -202,6 +202,11 @@ echo "programs: $(ls /bin | wc)"
 i=0
 while [ $i -lt 3 ]; do echo "hello $i"; i=$((i+1)); done
 ```
+
+## `pkg`: package manager (in progress)
+
+`pkg update` downloads the journals listed in `/etc/pkg/sources.list` (default: `journals/main.journal` of this repo on GitHub, following `journal` links to other journals, max 16 journals / depth 3) and writes the merged list to `/var/pkg/index`; `pkg list [WORD]` shows it (`[i]` = installed), `pkg sources` prints the sources. Installing is not implemented yet. Journal format: see `journals/main.journal`; `tools/mkjournal.sh DIR BASE_URL` prints `pkg` lines (with SHA-256 and size) for a directory of `.aot` files.
+Downloads use the `sys_http_get(url, path, max_bytes, timeout_ms)` syscall (ABI 4: native HTTPS with the built-in CA bundle, so the clock must be set by NTP, and the repo must be public for `raw.githubusercontent.com`).
 
 ## Writing a program
 
@@ -268,7 +273,7 @@ or build one and install it without reflashing: `ssh esp@host "put ~/.local/bin/
 ```
 main/            firmware: ota, timesync (SNTP), kv (NVS store), mqtt (client + cache), wifi_mgr, ssh_server, www (web server), svc (services), drivers (gpio/adc/pwm/i2c/...), shell, term (line discipline), io (streams), auth, aot_run (WAMR + sys_*), fs, tty_vfs
 programs/        C sources + build.sh + mini.h
-fs_image/        becomes the LittleFS partition (bin/, etc/ + etc/services/, tmp/, esp/ = home with .local/bin and www/)
+fs_image/        becomes the LittleFS partition (bin/, etc/ + etc/services/, tmp/, esp/ = home with .local/bin, www/ = web root)
 partitions.csv   4 MB flash: nvs, otadata, two 1.4 MB app slots (OTA), LittleFS 1.1 MB
 tools/ota.sh     network firmware update
 ```
@@ -299,8 +304,8 @@ ssh esp@host "ota rollback"          # go back to the previous image
 The board writes the other slot, checks the SHA-256, switches and reboots. A new image is "pending verification" and is confirmed once WiFi and sshd are up (~60 s); a crash or watchdog reset before that makes the bootloader fall back to the old image (the rollback path itself has not been exercised on hardware).
 Notes: the update is written with sequential erases (an up-front erase of 1.4 MB starves the idle task and trips the watchdog); hardware SHA is disabled (`CONFIG_MBEDTLS_HARDWARE_SHA=n`) because the hardware engine aborted while an image was streaming in. Changing `partitions.csv` again needs a USB flash and wipes the filesystem.
 
-## Syscalls (ABI 2): change programs without reflashing
-Application changes never need firmware: rebuild the `.aot` and `put` it. `programs/mini.h` declares every syscall (`sys_abi()` returns 2): files (unlink/mkdir/rmdir/rename/fsize/listdir/seek), TCP/UDP sockets and DNS (as fds), time (`sys_time/localtime/tz`, NTP), persistent key-value store (`sys_kv_*`, NVS), MQTT (`sys_mqtt_*`, native client with a subscription cache), random, reboot, log, version, plus the drivers above. Only a *new* syscall needs a firmware update (OTA).
+## Syscalls (ABI 4): change programs without reflashing
+Application changes never need firmware: rebuild the `.aot` and `put` it. `programs/mini.h` declares every syscall (`sys_abi()` returns 4): files (unlink/mkdir/rmdir/rename/fsize/listdir/seek), TCP/UDP sockets and DNS (as fds), time (`sys_time/localtime/tz`, NTP), persistent key-value store (`sys_kv_*`, NVS), MQTT (`sys_mqtt_*`, native client with a subscription cache), random, reboot, log, version, plus the drivers above. Only a *new* syscall needs a firmware update (OTA).
 
 Shell commands added with it: `date`, `tz`, `ntp`, `kv list|get|set|del`, `mqtt status|config|start|stop|pub|sub|unsub|cache`, `ota`. Native services: `sshd www mdns mqtt watchdog`.
 
@@ -309,7 +314,7 @@ This is a fresh project: add `.aot` programs and services without touching the f
 1. Write `programs/NAME.c` (`#include "mini.h"`, see `programs/hello.c`, `programs/sonar.c`, `programs/wc.c`), then `cd programs && ./build.sh NAME.c` (output `fs_image/bin/NAME.aot`; use `OUT=somewhere ./build.sh` to keep it out of the firmware image).
 2. Install on a running board, no flashing: `ssh esp@HOST "put ~/.local/bin/NAME.aot" < NAME.aot`, run it as `NAME`.
 3. Make it a service: `ssh esp@HOST "service new mysvc --every 30 --desc 'My thing' -- NAME args"`, then `service enable mysvc` and `service start mysvc` (see the Services section; unit files live in `/etc/services`).
-4. Web: put pages in `~/www`, dynamic endpoints in `~/www/cgi-bin/NAME.aot`. Settings that must survive reboots: `sys_kv_*` (NVS). MQTT, sockets, time, GPIO/I2C/SPI/ADC... are all syscalls (`programs/mini.h`).
+4. Web: put pages in `/www`, dynamic endpoints in `/www/cgi-bin/NAME.aot`. Settings that must survive reboots: `sys_kv_*` (NVS). MQTT, sockets, time, GPIO/I2C/SPI/ADC... are all syscalls (`programs/mini.h`).
 5. Firmware only changes when you add a syscall or native feature: `idf.py build && tools/ota.sh HOST`.
 
 Credentials: `.creds/` (gitignored) holds `wifi_ssid`, `wifi_password`, `esp32_ssh_password`, `esp32_ap_password` and the SSH host key; they are baked into the firmware at build time. First flash over USB: `idf.py -p /dev/ttyUSB0 flash` (writes the OTA partition table); afterwards use OTA.

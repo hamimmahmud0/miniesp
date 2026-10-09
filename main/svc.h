@@ -8,7 +8,7 @@
 //         Interval=10                           seconds between runs (timer style); 0 = run once / as a daemon
 //         Restart=no|always|on-failure          for Interval=0 programs
 //         RestartSec=5
-//         Output=/esp/www/sonar.log             also append the output to this file (optional)
+//         Output=/www/sonar.log             also append the output to this file (optional)
 //         Enabled=true                          start at boot
 //   Note: programs share one runtime, so a running service program holds it; interactive programs wait their turn.
 #include "io.h"

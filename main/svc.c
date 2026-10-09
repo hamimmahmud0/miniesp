@@ -68,7 +68,7 @@ static const native_t NATIVE[] = {
     { "www", "web server (port 80)", www_running, www_start, www_stop },
     { "mdns", "<hostname>.local name responder", mdns_running, mdns_start, mdns_stop },
     { "mqtt", "MQTT client (see: mqtt status)", mqtt_running, mqtt_start, mqtt_stop },
-    { "watchdog", "probes sshd/www, self-heals, writes ~/www/stall.log", wd_running, wd_start, wd_stop },
+    { "watchdog", "probes sshd/www, self-heals, writes /www/stall.log", wd_running, wd_start, wd_stop },
 };
 #define NNATIVE ((int)(sizeof NATIVE / sizeof *NATIVE))
 
@@ -399,7 +399,7 @@ int svc_command(int argc, char **argv, io_t *out, io_t *err)
     const char *sub = argc > 1 ? argv[1] : "list";
     if (!strcmp(sub, "list") || !strcmp(sub, "ls")) { print_list(out); return 0; }
     if (!strcmp(sub, "reload")) { scan_units(); say(out, "unit files reloaded\n"); return 0; }
-    if (!strcmp(sub, "diag")) { wd_diagnostics("manual request"); say(out, "diagnostics written to the serial log and ~/www/stall.log (http://<host>/stall.log)\n"); return 0; }
+    if (!strcmp(sub, "diag")) { wd_diagnostics("manual request"); say(out, "diagnostics written to the serial log and /www/stall.log (http://<host>/stall.log)\n"); return 0; }
 
     if (!strcmp(sub, "new")) {          // service new NAME [--every N] [--restart always|on-failure] [--output FILE] [--desc TEXT] -- command args...
         if (argc < 5 || !valid_name(argv[2])) { say(err, "usage: service new NAME [--every SEC] [--restart always|on-failure] [--output FILE] [--desc TEXT] -- COMMAND [ARGS]\n"); return 2; }

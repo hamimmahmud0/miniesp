@@ -1,6 +1,6 @@
 // Web hosting: a small HTTP/1.1 server.
-//   GET /path             static file from ~/www  (/ and directories serve index.html)
-//   GET /cgi-bin/NAME?a+b runs ~/www/cgi-bin/NAME.aot with arguments "a" "b"; its stdout is the response.
+//   GET /path             static file from /www  (/ and directories serve index.html)
+//   GET /cgi-bin/NAME?a+b runs /www/cgi-bin/NAME.aot with arguments "a" "b"; its stdout is the response.
 //                         The program may start with "Content-Type: xxx" and a blank line (CGI style);
 //                         otherwise JSON is detected by a leading { or [, everything else is text/plain.
 #include "www.h"
@@ -55,9 +55,9 @@ static esp_err_t send_text(httpd_req_t *req, const char *status, const char *bod
 static const char DEFAULT_PAGE[] =
     "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
     "<title>esp32-unix</title><body style='font:16px system-ui;max-width:40em;margin:2em auto;padding:0 1em'>"
-    "<h1>esp32-unix web server</h1><p>It works, but there is no <code>~/www/index.html</code> yet.</p>"
-    "<p>Put your site in <code>~/www</code> (for example <code>ssh esp@host \"put ~/www/index.html\" &lt; index.html</code>) "
-    "and programs in <code>~/www/cgi-bin</code> to serve dynamic data at <code>/cgi-bin/NAME</code>.</p>";
+    "<h1>esp32-unix web server</h1><p>It works, but there is no <code>/www/index.html</code> yet.</p>"
+    "<p>Put your site in <code>/www</code> (for example <code>ssh esp@host \"put /www/index.html\" &lt; index.html</code>) "
+    "and programs in <code>/www/cgi-bin</code> to serve dynamic data at <code>/cgi-bin/NAME</code>.</p>";
 
 static esp_err_t serve_file(httpd_req_t *req, const char *rel)
 {

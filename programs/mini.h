@@ -49,7 +49,7 @@ SYS("sys_gpio_mode")  int      sys_gpio_mode(int pin, int out);             // 1
 SYS("sys_gpio_write") int      sys_gpio_write(int pin, int level);
 SYS("sys_gpio_read")  int      sys_gpio_read(int pin);
 
-/* ---- Phase 4 syscalls (ABI 2; sys_mqtt_info added in ABI 3): everything an application needs without reflashing the firmware ---- */
+/* ---- Phase 4 syscalls (ABI 2; sys_mqtt_info added in ABI 3, sys_http_get in ABI 4): everything an application needs without reflashing the firmware ---- */
 SYS("sys_abi")        int      sys_abi(void);                               // syscall ABI version (2)
 SYS("sys_unlink")     int      sys_unlink(const char *path);
 SYS("sys_mkdir")      int      sys_mkdir(const char *path);
@@ -65,6 +65,7 @@ SYS("sys_sock_timeout") int    sys_sock_timeout(int fd, int ms);            // r
 SYS("sys_udp_open")   int      sys_udp_open(int port);                      // 0 = ephemeral; read with sys_read, send with sys_udp_sendto
 SYS("sys_udp_sendto") int      sys_udp_sendto(int fd, const char *host, int port, const void *buf, int n);
 SYS("sys_dns")        int      sys_dns(const char *host, char *buf, int n); // dotted IPv4 string
+SYS("sys_http_get")   int      sys_http_get(const char *url, const char *path, int max_bytes, int timeout_ms);   // ABI 4: HTTP(S) GET saved to a file; bytes, -1 net/TLS, -2 file, -3 too big, -4 Ctrl-C, -STATUS (-404)
 SYS("sys_time")       uint32_t sys_time(void);                              // epoch seconds (0 if never set)
 SYS("sys_time_state") int      sys_time_state(void);                        // 0 none, 1 restored/approximate, 2 NTP-synced
 SYS("sys_localtime")  int      sys_localtime(uint32_t epoch, int *out, int bytes);   // out[8]: sec,min,hour,mday,mon(0-11),year,wday,yday

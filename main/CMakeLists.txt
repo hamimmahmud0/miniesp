@@ -1,8 +1,8 @@
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/generated")
 idf_component_register(
-    SRCS "main.c" "io.c" "auth.c" "fs.c" "wifi_mgr.c" "term.c" "tty_vfs.c" "aot_run.c" "shell.c" "ssh_server.c" "drivers.c" "www.c" "svc.c" "wd.c" "ota.c" "timesync.c" "kv.c" "mqtt.c"
+    SRCS "main.c" "io.c" "auth.c" "fs.c" "wifi_mgr.c" "term.c" "tty_vfs.c" "aot_run.c" "shell.c" "ssh_server.c" "drivers.c" "www.c" "svc.c" "wd.c" "ota.c" "timesync.c" "kv.c" "mqtt.c" "httpget.c"
     INCLUDE_DIRS "." "${CMAKE_BINARY_DIR}/generated"
-    REQUIRES nvs_flash esp_wifi esp_netif esp_event esp_timer vfs lwip esp_driver_gpio mbedtls esp_http_server esp_adc esp_driver_ledc esp_driver_i2c esp_driver_dac esp_driver_uart esp_driver_spi esp_driver_pcnt driver app_update esp_app_format mqtt esp_hw_support)
+    REQUIRES nvs_flash esp_wifi esp_netif esp_event esp_timer vfs lwip esp_driver_gpio mbedtls esp_http_server esp_adc esp_driver_ledc esp_driver_i2c esp_driver_dac esp_driver_uart esp_driver_spi esp_driver_pcnt driver app_update esp_app_format mqtt esp_hw_support esp_http_client)
 
 # ---- Build-time credentials from <project>/.creds (gitignored). Missing file => empty string. ----
 set(CREDS_DIR "${CMAKE_SOURCE_DIR}/.creds")

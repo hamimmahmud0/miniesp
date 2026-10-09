@@ -637,7 +637,7 @@ static int cmd_www(sh_t *s, int c, char **v)
     char ip[20]; wifi_mgr_ip(ip, sizeof ip);
     sh_printf(s, "web server: running on port 80, %u request(s) served\n", (unsigned)www_requests());
     sh_printf(s, "  site:  http://%s.local/   or   http://%s/\n", net_hostname(), ip[0] ? ip : "<ip>");
-    sh_printf(s, "  files: ~/www (index.html, assets)     programs: ~/www/cgi-bin/NAME.aot  ->  /cgi-bin/NAME?arg+arg\n");
+    sh_printf(s, "  files: /www (index.html, assets)     programs: /www/cgi-bin/NAME.aot  ->  /cgi-bin/NAME?arg+arg\n");
     return 0;
 }
 
