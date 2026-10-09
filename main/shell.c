@@ -934,6 +934,18 @@ void shell_run(term_t *t, const char *user)
     if (m) { char b[200]; size_t n; while ((n = fread(b, 1, sizeof b, m)) > 0) term_write(t, b, n); fclose(m); }
 
     char line[TERM_LINE], prompt[128], pc[100];
+
+    // ~/.profile: one command per line ('#' comments and blank lines skipped), run once per interactive login
+    FILE *pf = fopen(FS_BASE FS_HOME "/.profile", "r");
+    if (pf) {
+        while (!s.quit && !t->closed && fgets(line, sizeof line, pf)) {
+            line[strcspn(line, "\r\n")] = 0;
+            char *p = line + strspn(line, " \t");
+            if (!*p || *p == '#') continue;
+            run_line(&s, p);
+        }
+        fclose(pf);
+    }
     while (!s.quit && !t->closed) {
         pretty_cwd(s.cwd, pc, sizeof pc);
         snprintf(prompt, sizeof prompt, "%s@%s:%s$ ", user, net_hostname(), pc);

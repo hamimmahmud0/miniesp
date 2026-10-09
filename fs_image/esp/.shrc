@@ -1,0 +1,3 @@
+# ~/.shrc: read by an interactive `sh` before its first prompt (same syntax as a sh script).
+# Example:
+#   export PS=work

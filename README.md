@@ -79,6 +79,11 @@ You log in as **`esp`** (default password **`esp32`**, change it with `passwd`) 
 | `/bin` | system programs (flashed with the firmware) |
 | `/etc`, `/tmp` | settings (`motd`), scratch space |
 
+### Startup files
+- **`~/.profile`** (`/esp/.profile`): run by the built-in shell at every interactive SSH login, after the motd. One command per line; blank lines and `#` comments are skipped. It is not run for `ssh host "cmd"`. Example: a line `neofetch` shows the summary at login.
+- **`~/.shrc`** (`/esp/.shrc`): read by an interactive `sh` before its first prompt, same syntax as a `sh` script (variables it sets stay available). Not read for `sh script` or `sh -c`.
+- Both ship as commented examples in `fs_image/esp/`; edit them with `put` (there is no editor).
+
 ### Run one command, copy files, install programs over SSH
 ```
 ssh esp@esp-minix.local "uname"                                  # run a command; its exit status is passed back

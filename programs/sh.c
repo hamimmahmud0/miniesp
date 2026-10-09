@@ -791,6 +791,8 @@ int main(int argc, char **argv)
     // interactive
     sys_sigint(1);                                                // Ctrl-C cancels the line/command, it does not kill the shell
     m_puts("sh: type 'exit' to leave\n");
+    int rc_fd = sys_open("/esp/.shrc", 0);                        // ~/.shrc: run once, variables stay
+    if (rc_fd >= 0) { read_all(rc_fd, script, sizeof script); sys_close(rc_fd); run_top(script); ctl = CTL_NONE; }
     for (;;) {
         int len = 0, more = 0;
         script[0] = 0;
