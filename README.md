@@ -213,6 +213,10 @@ CLI: `wtms status | read | config [k=v ...] | cmd reset|force_on[:min]|force_off
 ### Bundle packages (for package authors)
 A bundle is described by `packages/NAME/bundle.spec`; `tools/mkbundle.py packages/NAME` builds the program, copies the files to `pkgs/NAME/`, writes `pkgs/NAME/MANIFEST` (what `pkg install` downloads first) and the journal line `bundle NAME VERSION MANIFEST_URL sha256=... size=... abi=N`. Manifest lines: `dir PATH`, `file PATH URL sha256=.. size=..`, `copy SRC DEST`, `service NAME` (stopped and removed on `pkg remove`), `note TEXT`; paths must be under `/esp/`, `/www/`, `/etc/` or `/var/`. The whole manifest is validated before anything is written; files already present with the right hash are skipped, so `pkg install NAME` again (or `pkg fix`) repairs a damaged install.
 
+## `ping` and `nmap` (packages)
+
+`pkg install ping` / `pkg install nmap`. `ping [-c N] [-i SEC] [-W MS] [-s SIZE] HOST` sends real ICMP echo requests (new syscall `sys_ping`, **ABI 5**, so the firmware must be updated first) and prints each reply, the loss and min/avg/max round-trip time; Ctrl-C stops it with the summary. `nmap [-p PORTS] [-F] [-T MS] [-sn] [-v] TARGET...` is a small TCP connect scanner for a host name, an address, `a.b.c.1-50` or a CIDR block (/22 or smaller); "closed" means refused, "filtered" means no answer in the timeout. Only scan machines you own or may test.
+
 ## `nano` and `touch`
 
 `nano FILE` (`programs/nano.c`, 18 KB) is a small nano-style editor; run it from a real terminal (`ssh -t`, or a normal interactive login). The whole file is held in RAM, so files up to ~39 KB. Keys: arrows, Home/End, PgUp/PgDn, Delete, Backspace, Tab, Enter; `^O` write out (asks for the name), `^X` exit (asks to save), `^K` cut line, `^U` paste, `^W` search (wraps), `^A`/`^E` line start/end, `^V`/`^Y` page down/up, `^C` show the cursor position, `^L` redraw. A lost connection leaves without saving. `touch FILE...` creates empty files (`-c` creates nothing; the filesystem has no timestamps).
@@ -354,8 +358,8 @@ After the board is back, `tools/ota.sh` runs `tools/sync.sh`: it copies programs
 The board writes the other slot, checks the SHA-256, switches and reboots. A new image is "pending verification" and is confirmed once WiFi and sshd are up (~60 s); a crash or watchdog reset before that makes the bootloader fall back to the old image (the rollback path itself has not been exercised on hardware).
 Notes: the update is written with sequential erases (an up-front erase of 1.4 MB starves the idle task and trips the watchdog); hardware SHA is disabled (`CONFIG_MBEDTLS_HARDWARE_SHA=n`) because the hardware engine aborted while an image was streaming in. Changing `partitions.csv` again needs a USB flash and wipes the filesystem.
 
-## Syscalls (ABI 4): change programs without reflashing
-Application changes never need firmware: rebuild the `.aot` and `put` it. `programs/mini.h` declares every syscall (`sys_abi()` returns 4): files (unlink/mkdir/rmdir/rename/fsize/listdir/seek), TCP/UDP sockets and DNS (as fds), time (`sys_time/localtime/tz`, NTP), persistent key-value store (`sys_kv_*`, NVS), MQTT (`sys_mqtt_*`, native client with a subscription cache), random, reboot, log, version, plus the drivers above. Only a *new* syscall needs a firmware update (OTA).
+## Syscalls (ABI 5): change programs without reflashing
+Application changes never need firmware: rebuild the `.aot` and `put` it. `programs/mini.h` declares every syscall (`sys_abi()` returns 5): files (unlink/mkdir/rmdir/rename/fsize/listdir/seek), TCP/UDP sockets and DNS (as fds), time (`sys_time/localtime/tz`, NTP), persistent key-value store (`sys_kv_*`, NVS), MQTT (`sys_mqtt_*`, native client with a subscription cache), random, reboot, log, version, plus the drivers above. Only a *new* syscall needs a firmware update (OTA).
 
 Shell commands added with it: `date`, `tz`, `ntp`, `kv list|get|set|del`, `mqtt status|config|start|stop|pub|sub|unsub|cache`, `ota`. Native services: `sshd www mdns mqtt watchdog`.
 

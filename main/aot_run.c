@@ -321,7 +321,7 @@ static int sys_uart_read_(wasm_exec_env_t env, int port, uint8_t *buf, int n, in
 static int sys_uart_close_(wasm_exec_env_t env, int port) { return drv_uart_close(port); }
 
 /* ---------------- Phase 4: files, sockets, time, kv, mqtt, system ---------------- */
-#define SYS_ABI 4                                    // bump when a syscall is added; programs may check sys_abi()
+#define SYS_ABI 5                                    // bump when a syscall is added; programs may check sys_abi()
 
 static int vhost(const char *path, char *host, size_t n)
 {
@@ -463,6 +463,67 @@ static int sys_http_get_(wasm_exec_env_t env, const char *url, const char *path,
     return http_download(url, h, max_bytes, timeout_ms, http_cancel_, env);
 }
 
+/* ICMP echo ("ping") through a raw socket. ABI 5.
+ * Returns the round-trip time in microseconds (>= 0), or -1 timeout, -2 cannot send / no raw socket, -3 destination unreachable, -4 interrupted. */
+static uint16_t icmp_sum(const uint8_t *d, int n)
+{
+    uint32_t sum = 0;
+    for (int i = 0; i + 1 < n; i += 2) sum += (uint32_t)(d[i] << 8 | d[i + 1]);
+    if (n & 1) sum += (uint32_t)d[n - 1] << 8;
+    while (sum >> 16) sum = (sum & 0xffff) + (sum >> 16);
+    return (uint16_t)~sum;
+}
+static int sys_ping_(wasm_exec_env_t env, const char *host, int timeout_ms, int seq, int size)
+{
+    struct addrinfo hints = { .ai_family = AF_INET, .ai_socktype = SOCK_RAW }, *res = NULL;
+    if (getaddrinfo(host, NULL, &hints, &res) || !res) return -2;
+    struct sockaddr_in dst = *(struct sockaddr_in *)res->ai_addr;
+    freeaddrinfo(res);
+    if (size < 0) size = 0;
+    if (size > 400) size = 400;
+    if (timeout_ms < 50) timeout_ms = 50;
+    int s = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+    if (s < 0) return -2;
+    uint8_t pkt[8 + 400];
+    const uint16_t id = 0x4d45;                       // "ME"
+    pkt[0] = 8; pkt[1] = 0; pkt[2] = pkt[3] = 0;
+    pkt[4] = id >> 8; pkt[5] = id & 255; pkt[6] = (seq >> 8) & 255; pkt[7] = seq & 255;
+    for (int i = 0; i < size; i++) pkt[8 + i] = (uint8_t)(0x20 + i % 64);
+    uint16_t ck = icmp_sum(pkt, 8 + size);
+    pkt[2] = ck >> 8; pkt[3] = ck & 255;
+    int64_t t0 = esp_timer_get_time();
+    if (sendto(s, pkt, 8 + size, 0, (struct sockaddr *)&dst, sizeof dst) < 0) { close(s); return -2; }
+    int result = -1;
+    for (;;) {
+        int64_t left = (int64_t)timeout_ms * 1000 - (esp_timer_get_time() - t0);
+        if (left <= 0) break;
+        if (interrupted(env) || (P && P->t && P->t->sigint)) { result = -4; break; }          // a program that catches Ctrl-C clears the flag itself
+        fd_set rs; FD_ZERO(&rs); FD_SET(s, &rs);
+        int64_t slice = left < 100000 ? left : 100000;
+        struct timeval tv = { (time_t)(slice / 1000000), (suseconds_t)(slice % 1000000) };
+        int r = select(s + 1, &rs, NULL, NULL, &tv);
+        if (r < 0) break;
+        if (r == 0) continue;
+        uint8_t rx[600];
+        struct sockaddr_in from; socklen_t fl = sizeof from;
+        int n = recvfrom(s, rx, sizeof rx, 0, (struct sockaddr *)&from, &fl);
+        if (n < 28) continue;
+        int ihl = (rx[0] & 15) * 4;
+        if (ihl < 20 || n < ihl + 8) continue;
+        const uint8_t *ic = rx + ihl;
+        if (ic[0] == 0 && from.sin_addr.s_addr == dst.sin_addr.s_addr && ic[4] == (id >> 8) && ic[5] == (id & 255) && ic[6] == ((seq >> 8) & 255) && ic[7] == (seq & 255)) {
+            result = (int)(esp_timer_get_time() - t0);
+            break;
+        }
+        if (ic[0] == 3 && n >= ihl + 8 + 20 + 8) {                    // destination unreachable quoting our packet
+            const uint8_t *q = ic + 8 + ((ic[8] & 15) * 4);
+            if (q + 8 <= rx + n && q[0] == 8 && q[4] == (id >> 8) && q[5] == (id & 255)) { result = -3; break; }
+        }
+    }
+    close(s);
+    return result;
+}
+
 /* time */
 static uint32_t sys_time_(wasm_exec_env_t env) { return time_now(); }
 static int sys_time_state_(wasm_exec_env_t env) { return time_state(); }
@@ -582,6 +643,7 @@ static NativeSymbol s_natives[] = {
     { "sys_tcp_accept", sys_tcp_accept_, "(ii)i" }, { "sys_sock_timeout", sys_sock_timeout_, "(ii)i" },
     { "sys_udp_open", sys_udp_open_, "(i)i" }, { "sys_udp_sendto", sys_udp_sendto_, "(i$i*~)i" }, { "sys_dns", sys_dns_, "($*~)i" },
     { "sys_http_get", sys_http_get_, "($$ii)i" },
+    { "sys_ping", sys_ping_, "($iii)i" },
     { "sys_time", sys_time_, "()i" }, { "sys_time_state", sys_time_state_, "()i" }, { "sys_localtime", sys_localtime_, "(i*~)i" },
     { "sys_tz", sys_tz_, "($)i" },
     { "sys_abi", sys_abi_, "()i" }, { "sys_random", sys_random_, "()i" }, { "sys_reboot", sys_reboot_, "()i" },
