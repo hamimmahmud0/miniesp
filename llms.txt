@@ -1,0 +1,368 @@
+# esp32-unix: context for AI agents
+
+> A unix-like operating system for the classic ESP32, built on ESP-IDF 5.3.2 (FreeRTOS). It exposes an SSH server with a Linux-style shell,
+> runs user programs written in C and compiled to WebAssembly then AOT-compiled for Xtensa (WAMR), keeps files in LittleFS, serves a website
+> (static files + AOT programs as CGI) and has a systemd-like service manager. This file tells you how to (1) flash the OS onto new ESP32
+> boards and (2) write, build, install and debug new AOT applications for it. Read sections 1-2 for orientation, 4-5 to flash, 7-9 to write apps.
+
+Everything lives in `` (firmware + programs + website). The repo root also holds `README.md` (human docs), `BOARDS.md` (what is wired to which pin),
+`.creds/` (secrets, gitignored) and `relay_node/` (an unrelated ESP8266 Arduino project; ignore it for this OS).
+`README.md` is the human-facing manual; this file is the agent-facing one and goes deeper on toolchain, internals and pitfalls.
+
+## 1. What the system does
+
+- Boot: mounts LittleFS, reserves memory, connects to a predefined WiFi (credentials baked in from `.creds/`), falls back to an access point `esp32-unix` (192.168.4.1) when it cannot connect within 15 s.
+- SSH server (wolfSSH, port 22), user `esp`, password auth only. Interactive shell (pty) and `ssh host "command"` (exec) both work. Exit status of exec commands is passed back.
+- Shell: unix-like built-ins (ls -la, cat, cp, mv, rm, mkdir -p, put, sha256sum, ps, free, df, ...), pipes and redirects, history, Ctrl-C.
+- Programs: `*.aot` files. Written in C against `programs/mini.h`, run by name from `~/.local/bin` (user) and `/bin` (system).
+- `sh`: a bash-like shell that is itself an AOT program (pipes, redirects, `&& || ;`, variables, `$(...)`, `$((...))`, if/for/while, scripts).
+- Web server (port 80, native C): serves `~/www`; `/cgi-bin/NAME?args` runs `~/www/cgi-bin/NAME.aot`.
+- Service manager (`service`, `systemctl`): native services sshd/www/mdns + unit files `/etc/services/*.service` that run AOT programs on a schedule.
+- Hardware access: GPIO, ADC1, PWM (LEDC), DAC, I2C, UART1/2, microsecond timer; shell commands `gpio adc pwm dac i2c` and matching `sys_*` calls.
+- mDNS name `esp-minix.local` (configurable), static IP or DHCP (configurable), password changeable at runtime (`passwd`).
+- Bundled programs: hello fib greet wc grep head blink sh btop sonar sysinfo. No website or CGI program is installed by default (the web server shows a placeholder page until you publish `~/www/index.html`).
+
+## 2. Repository layout
+
+```
+.creds/                     SECRETS, gitignored (see section 5). Also esp32_unix.md = machine-specific notes for the original dev setup.
+BOARDS.md                   pin wiring (HC-SR04 sonar: trigger GPIO33, echo GPIO32 on the ESP32)
+llms.txt                    this file
+
+  CMakeLists.txt            ESP-IDF project file (project name esp32_unix)
+  sdkconfig.defaults        ALL non-default sdkconfig options (the source of truth; sdkconfig itself is generated + gitignored)
+  partitions.csv            4 MB flash layout (nvs, phy_init, factory app 0x1A0000, LittleFS 0x250000)
+  dependencies.lock         pinned managed components (commit it)
+  main/                     the firmware (C), one component named "main"
+    main.c                  app_main: nvs, fs, tty vfs, aot_init, wifi, services
+    aot_run.c/.h            WAMR integration: syscall table (NativeSymbol s_natives[]), run lock, memory slots, nested programs
+    drivers.c/.h            gpio/adc/pwm/dac/i2c/uart implementations shared by shell + syscalls
+    shell.c/.h              the login shell, built-ins, pipelines/redirects, driver + service commands
+    ssh_server.c/.h         wolfSSH server task, sessions, exec/pty handling, liveness checks
+    term.c/.h  io.c/.h      line discipline + terminal buffers; stream abstraction (terminal, file, RAM buffer, log sink)
+    www.c/.h                HTTP server (esp_http_server): static files + CGI
+    svc.c/.h                service manager
+    wifi_mgr.c/.h           STA/AP logic, hostname, static IP, mDNS, scan
+    auth.c/.h               password check (build-time default or runtime salted hash in NVS)
+    fs.c/.h                 LittleFS mount, path resolution ("/" = LittleFS root, "~" = /esp)
+    tty_vfs.c/.h            /dev/pts VFS device (only used by wasi-libc programs; legacy)
+    CMakeLists.txt          generates creds.h + embeds the SSH host key from ../.creds, packs fs_image into the LittleFS image,
+                            patches wolfSSH, wraps os_mmap (see section 11)
+    idf_component.yml       managed deps: WAMR (git, tag WAMR-2.4.5), joltwallet/littlefs, wolfssl/wolfssh, wolfssl/wolfssl, espressif/mdns
+  programs/                 AOT application sources + build.sh + mini.h (THE programming interface)
+  fs_image/                 packed into the LittleFS partition at build time (becomes the device's "/"):
+    bin/                    system programs (*.aot, produced by programs/build.sh)
+    etc/motd, etc/services/ message of the day, example unit file (heartbeat, disabled)
+    esp/                    the user's home (~ = /esp): .local/bin (user programs, starts empty), www/ (website), www/cgi-bin/
+    tmp/
+  dist/                     scratch output (old build artefacts); ignore
+relay_node/                 unrelated ESP8266 Arduino project
+```
+
+## 3. Hardware assumptions
+
+- Target: **classic ESP32** (ESP32-D0WD / WROOM-32 / WROVER without using PSRAM), dual-core Xtensa LX6, 240 MHz, **4 MB flash**, 520 KB SRAM. No PSRAM is required or used.
+- Not supported as-is: ESP32-S2/S3/C3/C6/H2. They need a different `wamrc` target/cpu (S3: Xtensa LX7; C3/C6: RISC-V `--target=riscv32`), different IRAM/ADC/DAC details, and a re-check of the memory model. The `CONFIG_ESP32_IRAM_AS_8BIT_ACCESSIBLE_MEMORY` trick is ESP32-specific.
+- Identify a board: `esptool.py --port /dev/ttyUSB0 chip_id` and `flash_id` (expect "ESP32", "Detected flash size: 4MB"). A 8/16 MB board works too but only 4 MB is used unless you edit `partitions.csv` and `CONFIG_ESPTOOLPY_FLASHSIZE_*`.
+- USB-serial chips seen: CP210x (`10c4:ea60`) and FTDI FT232. Linux device `/dev/ttyUSB0`; the user must be in group `dialout` (or prefix commands with `sg dialout -c "..."` right after `usermod -aG dialout $USER`, before re-login).
+- Pins in use by the stock programs: sonar trigger GPIO33 / echo GPIO32; heartbeat/blink LED GPIO2. Flash pins 6-11 are refused by the drivers. GPIO34-39 are input-only. ADC works only on ADC1 (GPIO32-39) because ADC2 conflicts with WiFi.
+- The HC-SR04 echo pin is 5 V: use a voltage divider before the ESP32 pin.
+
+## 4. Host setup (Linux, once per development machine)
+
+Required: git, gcc/g++, make, cmake, openssl, curl, python3, ~15 GB disk, internet (ESP component registry + GitHub). Paths below are what the existing helper scripts expect; change them consistently if you choose others.
+
+1. **Python 3.11 for ESP-IDF.** IDF 5.3 does not support Python 3.13/3.14. Example with conda: `conda create -y -n idfpy python=3.11` then put `~/.miniconda3/envs/idfpy/bin` first in PATH.
+2. **ESP-IDF v5.3.2:**
+   ```
+   mkdir -p ~/esp && cd ~/esp
+   export PATH=$HOME/.miniconda3/envs/idfpy/bin:$PATH
+   git clone --depth 1 --branch v5.3.2 --recursive --shallow-submodules https://github.com/espressif/esp-idf.git
+   cd esp-idf && ./install.sh esp32
+   ```
+   Activate in every shell: `. ~/esp/esp-idf/export.sh` (the original setup wraps this in `~/esp/env.sh`: it prepends the python-3.11 bin dir and sources export.sh).
+3. **wasi-sdk 34** (clang for wasm): download `wasi-sdk-34.0-x86_64-linux.tar.gz` from https://github.com/WebAssembly/wasi-sdk/releases (tag wasi-sdk-34) and extract to `~/esp/tools/wasi/` (so `~/esp/tools/wasi/wasi-sdk-34.0-x86_64-linux/bin/clang` exists). Programs are built freestanding, so only the clang binary is used (no sysroot).
+4. **wamrc with the Xtensa backend (the long step, ~40 min on 8 cores).** The prebuilt `wamrc` release binaries do NOT contain Xtensa (`llvm get target from triple (xtensa-pc-linux-gnu) failed`). Build it from the same WAMR tag as the firmware runtime (**the AOT file format version must match the runtime**, here 2.4.5):
+   ```
+   git clone --depth 1 --branch WAMR-2.4.5 https://github.com/bytecodealliance/wasm-micro-runtime.git ~/esp/wamr
+   pip install requests ninja            # into the same python env
+   cd ~/esp/wamr/build-scripts
+   CXXFLAGS="-include cstdint" python3 build_llvm.py --platform xtensa --arch X86 Xtensa   # -include cstdint is required with GCC >= 14
+   cd ../wamr-compiler && mkdir build && cd build && cmake .. && make -j8
+   ~/esp/wamr/wamr-compiler/build/wamrc --target=help | grep xtensa   # must list xtensa
+   ```
+   Use `make`, not ninja, for the wamrc step (cmake picks Makefiles). LLVM is the espressif fork `xtensa_release_18.1.2`, fetched by the script; needs ~8+ GB RAM to link comfortably.
+5. Optional helpers (not in the repo; recreate them, see Appendix A): `~/esp/tools/essh` (non-interactive ssh with the password from `.creds`), `~/esp/tools/mon.py` (serial capture without a TTY; needs pyserial, which the IDF python env has), `pip install pyte` for rendering terminal-UI captures in tests.
+
+## 5. Credentials: the `.creds/` directory (gitignored; never commit)
+
+Plain files, one value each (a trailing newline is stripped). They are read at CMake configure time into a generated header, so **they are baked into the firmware image**.
+
+| File | Meaning | If missing |
+|---|---|---|
+| `wifi_ssid` | 2.4 GHz network to join (WPA2) | no STA attempt: boots straight into AP mode |
+| `wifi_password` | its password | empty |
+| `esp32_ssh_password` | default SSH password for user `esp` (default used in this project: `esp32`; weak, change it with `passwd` after first login) | **nobody can log in** (empty default = login refused until a password is set; set one before flashing) |
+| `esp32_ap_password` | WPA2 password (>= 8 chars) of the fallback AP `esp32-unix` | AP is open |
+| `esp32_hostkey.der` | SSH host key (ECDSA P-256, DER) | generated automatically with openssl on first configure |
+
+Create them: `mkdir -p .creds && printf 'MyNet' > .creds/wifi_ssid && printf 'secret' > .creds/wifi_password && printf 'esp32' > .creds/esp32_ssh_password && python3 -c "import secrets;print(secrets.token_urlsafe(9))" > .creds/esp32_ap_password`.
+The SSH user name `esp`, AP name `esp32-unix` and default hostname `esp-minix` are constants in `main/CMakeLists.txt` / `wifi_mgr.h`.
+Keep the same `esp32_hostkey.der` for all boards you flash if you want one SSH fingerprint; delete it before configuring to get a fresh key per fleet.
+A runtime password changed with `passwd` and network settings changed from the shell live in NVS and survive `app-flash` and `flash`, but not `erase_flash`.
+
+## 6. Flashing the OS onto a new ESP32 (step by step)
+
+```
+. ~/esp/esp-idf/export.sh                  # with the python 3.11 env first in PATH
+cd esp32_unix
+rm -f sdkconfig                            # REQUIRED whenever sdkconfig.defaults changed (it is only read when sdkconfig is absent)
+idf.py -p /dev/ttyUSB0 build flash         # first build downloads components (~10 min); flash ~1 min
+```
+`flash` writes bootloader + partition table + app + the LittleFS image (`fs_image/`). Expected build size: app ~1.1 MB of the 1.625 MB partition.
+
+Variants:
+- `idf.py -p PORT build app-flash` : firmware only, **keeps the filesystem** (user files, uploaded programs, website edits) - use this for updates. A full `flash` re-images LittleFS and erases everything in `~`.
+- Fresh board / full factory reset: `esptool.py --chip esp32 -p PORT erase_flash` first (also clears NVS: runtime password, WiFi override, service flags, host name, static IP).
+- Several boards: run the same commands per port (`/dev/ttyUSB1`, ...). Each board then has the same credentials and hostname `esp-minix`; give them distinct names afterwards: `ssh esp@<ip> "hostname lab-2"` (live) and optionally a static IP `ifconfig static IP MASK GW [DNS]` + `reboot`.
+- If auto-reset fails (no connection): hold BOOT, tap EN/RESET, release BOOT. Use a data-capable USB cable. Check `ls /dev/ttyUSB*` and group membership (`dialout`).
+- Serial console is 115200 baud. `idf.py monitor` needs a TTY; without one use a small pyserial script (Appendix A).
+
+First boot, what to expect (serial log): `fs: LittleFS mounted`, `aot: linear-memory slots: DRAM ok, IRAM ok`, `wifi: connecting to '<ssid>'...`, then `wifi: got ip a.b.c.d`, `wifi: mDNS: esp-minix.local`, `svc: service manager up`, `ssh: listening on port 22`, `www: web server on port 80`.
+- Joined WiFi: `ssh esp@esp-minix.local` (mDNS: Linux needs avahi/nss-mdns; macOS/iOS/Android/Windows 10+ mostly work) or `ssh esp@<ip from the log>`. DHCP address unless a static IP is configured.
+- Could not join (wrong SSID, out of range): after 15 s it starts AP `esp32-unix` (WPA2 with `esp32_ap_password`, device 192.168.4.1). Join it and `ssh esp@192.168.4.1`, then `wifi set <ssid> <password>` and `reboot`.
+- Verify: `ssh esp@host "uname"` prints `<hostname> 0.1 ESP-IDF v5.3.2 ...`; `ssh esp@host free`; `curl -s http://host/` (placeholder page, HTTP 200).
+- Without `idf.py` (e.g. flashing from a CI box): from `build/` run `python -m esptool --chip esp32 -b 460800 write_flash @flash_args` (the exact command is printed at the end of `idf.py build`).
+
+Troubleshooting flash/boot:
+- `Failed to connect`: cable/port/permissions/BOOT button as above.
+- Boot loop with `rst:0x8 (TG1WDT_SYS_RESET)` or `Guru Meditation`: capture the log, decode PCs with `xtensa-esp32-elf-addr2line -pfiaC -e build/esp32_unix.elf <addresses>`. Typical causes: stack overflow in a task, a WAMR call from a non-pthread task (see section 11), a bad AOT file.
+- Device answers ping but not SSH: reset it (`RTS` via serial or the EN button) and capture the log; the liveness code (keepalive, peer-gone detection) was added because a stuck session once held the only session slot.
+- `sshd` unreachable after a stop: `service stop sshd` only closes the listener for new sessions; use `service start sshd` from an open session or reboot.
+
+## 7. Runtime model (know this before writing apps)
+
+- **One program at a time.** A global run lock serializes top-level programs: an SSH command, a web CGI request or a service run each take it. SSH commands wait up to 10 s; web requests wait ~1 s then get `503 busy` (immediately if an interactive terminal program like `btop`/`sh` holds it); services log "skipped" if busy. A program started from inside another program (`sys_run`) is *nested* and shares the parent's lock. Only **one level of nesting** fits in memory.
+- **Memory is the scarce resource** (single-core build, no PSRAM): about 295 KB DRAM heap total (static `.bss` of the firmware is subtracted from ~328 KB data RAM), ~100 KB free at idle with an SSH session open, ~75 KB while a program runs. Check with the shell command `free` or `btop` (rows: DRAM, IRAM pool, AOT code, Flash FS). Avoid large static arrays in the firmware: they shrink the heap (a 19 KB service log table once made `sh` fail to load).
+- **A program's memory:** WASM linear memory is exactly **64 KB** (1 page, `--initial-memory=65536 --max-memory=65536`) and contains static data + heap-less + the 8 KB stack. It cannot grow. Two 64 KB slots are reserved at boot: slot 0 in DRAM (fast, for the top-level program), slot 1 in IRAM (byte access is emulated by an exception handler: slower, used by the nested child). A third concurrent program does not fit.
+- **AOT code** is copied into executable IRAM (the "AOT code" pool, ~240 KB, largest block ~100 KB). The `.aot` *file* also stays in RAM while the program runs (the AOT loader keeps pointers into it): files >= 16 KB are placed in the IRAM byte-accessible pool when they fit (pool ~38 KB free after the slot is reserved), else DRAM. `sh.aot` (37.7 KB) fits that pool by only ~280 bytes; keep programs small. Typical program: 3-10 KB AOT.
+- Programs run on a pthread (WAMR calls `pthread_self`; plain FreeRTOS tasks would assert). The worker stack is 16 KB (shell), 10 KB (CGI, services).
+- stdin/stdout/stderr (fd 0/1/2) are the terminal for interactive sessions, an RAM buffer or file in pipelines/redirects, or a log sink in services/CGI. Terminal output converts `\n` to `\r\n` automatically in pty sessions (not in `ssh host cmd`).
+- Terminal input is a cooked line (edited, echoed by the OS) delivered with its `\n` on `sys_read(0)`; `sys_getkey` gives raw keys for full-screen programs.
+- Ctrl-C: by default terminates the running program (also nested ones). A program can call `sys_sigint(1)` to receive it as a soft failure instead (shells, `btop`).
+- Virtual filesystem: LittleFS root is `/` (`/bin`, `/etc`, `/tmp`, `/esp`); `~` = `/esp`; relative paths resolve against the program's working directory (the caller's cwd). No symlinks, no permissions, no timestamps (no RTC; log timestamps are uptime seconds). Programs access files only through `sys_open`/`sys_read`/`sys_write` (WASI directory access does not work on ESP-IDF).
+
+## 8. Writing a new AOT application (the main task for agents)
+
+### 8.1 Template
+Create `programs/NAME.c`:
+```c
+#include "mini.h"                      // the whole programming interface; no libc, no malloc, no stdio
+
+int main(int argc, char **argv)        // return value = exit status (0 = success)
+{
+    if (argc < 2) { m_eputs("usage: NAME TEXT\n"); return 2; }
+    m_printf("hello %s, uptime %u s\n", argv[1], (unsigned)sys_sysinfo(SI_UPTIME_S));
+    return 0;
+}
+```
+`mini.h` defines the exported entry `esp_main` (builds argc/argv from `sys_argc/sys_arg`), a tiny `printf`, and memcpy/memset/memmove/memcmp (the compiler may emit calls to them). Rules:
+- Freestanding C: no `<stdio.h>`, `<stdlib.h>`, `<string.h>` functions, no `malloc`. Use static buffers; total static data + 8 KB stack must fit in 64 KB. Use `m_strlen`, `m_strcmp`, `m_atoi`, `m_printf` (`%s %d %u %x %c %%`, width and `0` flag, no floats, no `%ld`), `m_puts`, `m_eputs`, `m_eprintf`, `m_write(fd, buf, n)`.
+- 64-bit integer math works (`long long`); floating point is not available through `m_printf`; avoid float/double (soft-float pulls runtime helpers; not worth it).
+- Do not busy-loop without calling a `sys_*` function if you want Ctrl-C to work (termination is checked on calls into the OS). `sys_sleep_ms` is interruptible.
+- Output through `m_*`/`sys_write(1/2)`; input through `sys_read(0)` (one line per call in a terminal; raw bytes from a pipe/file; returns 0 at EOF).
+- Programs may be used in pipelines: read stdin when no file arguments are given, like `wc`/`grep`/`head` do.
+
+### 8.2 Build
+```
+cd programs
+./build.sh NAME.c               # -> ../fs_image/bin/NAME.aot (flashed with the OS as a system program)
+OUT=../fs_image/esp/www/cgi-bin ./build.sh NAME.c    # for a web CGI program
+OUT=/tmp/out ./build.sh NAME.c  # anywhere else
+./build.sh                      # all programs
+```
+`build.sh` runs exactly these two steps (env overrides: `WASI_SDK`, `WAMRC`, `OUT`, `WAMRC_FLAGS`, `TMPDIR`):
+```
+clang --target=wasm32 -nostdlib -ffreestanding -fno-builtin -Oz -z stack-size=8192 \
+      -Wl,--no-entry -Wl,--export=esp_main -Wl,--gc-sections -Wl,--strip-all \
+      -Wl,--initial-memory=65536 -Wl,--max-memory=65536 -o NAME.wasm NAME.c
+wamrc --target=xtensa --opt-level=2 --size-level=0 -o NAME.aot NAME.wasm
+```
+**`--size-level=0` is mandatory for Xtensa** (other levels leave literal pools unrelocated: the program crashes at its first function with LoadProhibited). Do not use `--xip`/`--enable-indirect-mode` (the loader rejects them), and do not use `--disable-ref-types`. `--opt-level=2` was chosen because it makes `sh.aot` ~800 bytes smaller than level 3.
+Never add `-mno-reference-types` etc.; freestanding output is plain MVP wasm.
+Typical sizes: 1.5 KB wasm -> 3.5 KB AOT (about 2.5x).
+
+### 8.3 Install and run (no reflash needed)
+```
+ssh esp@HOST "put ~/.local/bin/NAME.aot" < fs_image/bin/NAME.aot     # user program (PATH: ~/.local/bin first, then /bin)
+ssh esp@HOST "sha256sum ~/.local/bin/NAME.aot"; sha256sum fs_image/bin/NAME.aot   # verify (should match)
+ssh esp@HOST "NAME arg1 arg2"                                         # run; exit status comes back to the caller
+ssh -t esp@HOST                                                       # interactive; then just type NAME
+```
+`put` reads its stdin until EOF, so it needs a non-interactive session (`ssh host "put path" < file`). Download with `ssh host "cat path" > file`. There is no scp/sftp (rejected fast). 200 KB transfers were verified byte-exact in both directions.
+System programs (in `fs_image/bin`) are flashed by a full `idf.py flash`; for a quick update of a system program just `put` it to `/bin/NAME.aot`.
+
+### 8.4 Syscall reference (`programs/mini.h`; implemented in `main/aot_run.c` and `main/drivers.c`)
+All return an int; negative means error unless noted. "fd": 0 stdin, 1 stdout, 2 stderr, 3..10 = streams you opened (max 8 open).
+
+| Call | Meaning |
+|---|---|
+| `sys_write(fd,buf,n)` / `sys_read(fd,buf,n)` | I/O on any fd. `sys_read` returns bytes, 0 = EOF, <0 error/interrupted. Terminal stdin returns one edited line including `\n`. |
+| `sys_open(path,mode)` / `sys_close(fd)` | mode 0 read, 1 write+truncate (creates), 2 append. Relative paths use the cwd. Returns fd or -1. |
+| `sys_getcwd(buf,n)`, `sys_chdir(path)`, `sys_stat(path)` | cwd (virtual path); stat returns 1 file, 2 directory, -1 missing. |
+| `sys_membuf()` / `sys_rewind(fd)` | in-RAM stream (<= 24 KB) for pipes: write into it, rewind, read it back as another command's stdin. |
+| `sys_run(blob,len,argc,in,out,err)` | run a command (built-in or `.aot`) and wait. `blob` = argc NUL-terminated words back to back. fds 0/1/2 mean "inherit mine", >=3 = your streams. Returns its exit status (127 not found). This is how `sh` is built. |
+| `sys_argc()`, `sys_arg(i,buf,n)` | arguments (normally handled for you by `esp_main`). |
+| `sys_isatty(fd)` | 1 if fd is an interactive terminal. |
+| `sys_sigint(op)` | 1 = catch Ctrl-C (it no longer kills you), 2 = stop catching, 0 = return 1 and clear if a Ctrl-C is pending. |
+| `sys_getkey(ms)` | one raw key from the terminal with timeout: byte, -1 timeout, -2 EOF, -3 Ctrl-C. For full-screen apps (see `btop.c`). Escape sequences arrive as separate bytes. |
+| `sys_sysinfo(SI_*)` | `SI_UPTIME_S, SI_DRAM_FREE/TOTAL/MINFREE/LARGEST, SI_IRAM8_FREE/TOTAL, SI_EXEC_FREE/TOTAL, SI_FS_USED/TOTAL, SI_RSSI, SI_CPU_MHZ, SI_NTASKS, SI_COLS, SI_ROWS` (terminal size) |
+| `sys_netinfo(what,buf,n)` | 0 hostname, 1 IP, 2 SSID (returns length). |
+| `sys_tasks(buf,n)` | fills `esp_task_t {name[12], state, prio, stack, cpu10, pid}` records; `cpu10` = CPU% x10 since the previous call; returns record count. |
+| `sys_millis()`, `sys_micros()`, `sys_sleep_ms(ms)` | time since boot (micros wraps after ~71 min); sleep is interruptible. |
+| `sys_gpio_mode(pin,out)`, `sys_gpio_write`, `sys_gpio_read` | pins 6-11 refused; 34-39 input-only; mode 0 = input with pull-up. |
+| `sys_adc_read(pin)` | ADC1 pins 32-39, raw 0..4095 (11 dB attenuation, ~0-3.1 V, non-linear). |
+| `sys_pwm(pin,hz,permille)` | LEDC PWM: 1..40000 Hz, duty 0..1000; negative duty stops. 8 channels, 4 distinct frequencies. |
+| `sys_dac_write(pin,v)` | GPIO25/26, 0..255. |
+| `sys_i2c_init(sda,scl,hz)`, `sys_i2c_probe`, `sys_i2c_write/read`, `sys_i2c_wr(addr,w,wn,r,rn)` | one bus; defaults SDA 21, SCL 22, 100 kHz (auto-initialised); 7-bit addresses. |
+| `sys_uart_open(port,tx,rx,baud)`, `sys_uart_write/read(port,buf,n,timeout_ms)`, `sys_uart_close` | UART1 and UART2 only (UART0 is the console). |
+
+Other shell facts apps rely on: exit codes follow unix (127 not found, 130 Ctrl-C, 2 usage). Output size is not limited, but RAM pipes between commands are capped at 24 KB.
+
+### 8.5 Recipes
+- **Filter** (stdin -> stdout): loop `n = sys_read(0, buf, sizeof buf)` until 0, `sys_write(1, buf, n)`. See `head.c`, `grep.c`, `wc.c` (they also accept file names).
+- **Sensor as a JSON web endpoint:** print one JSON line, build with `OUT=../fs_image/esp/www/cgi-bin` (or `put` it to `~/www/cgi-bin/NAME.aot`), then `GET /cgi-bin/NAME?-j+-s+3` (query words separated by `+` or `&` become argv; allowed chars `[A-Za-z0-9_.,:=@/-]`). Optional CGI header: first line `Content-Type: text/csv` + blank line; otherwise JSON is detected by a leading `{`/`[`. Max run time 8 s. See `sonar.c`, `sysinfo.c`.
+- **Background job:** write the program to run briefly, then a unit file with `Interval=` (section 9.4).
+- **Full-screen UI:** `sys_isatty(1)` check, `sys_sigint(1)`, alternate screen `\x1b[?1049h`, build a frame in a static buffer and `m_write` it once, loop on `sys_getkey(ms)`, restore the terminal on exit (also on Ctrl-C, which arrives as -3). See `btop.c`.
+- **Timing a pulse:** poll `sys_gpio_read` and stamp with `sys_micros` (see `sonar.c`); WiFi interrupts add jitter, so take the median of several samples.
+- **Calling other commands / building pipelines:** see `sh.c` (`run_simple`, `exec_pipeline`).
+
+### 8.6 Debugging apps
+There is no debugger. Useful loop: build -> `put` -> run over ssh -> read stderr/exit status. Tools: `ssh host free` (memory), `ssh host ps`, serial log (`mon.py`), `btop`.
+Common load/run errors (printed by the OS on stderr):
+- `load failed: ... allocate memory failed` : out of DRAM/IRAM while loading; the program or the system is too big or too fragmented right now. Check `free`; shrink the program; make sure no big service/web run is active; retry.
+- `instantiate failed: ... allocate linear memory failed` : both 64 KB slots are busy (3rd program, or nested twice).
+- A load error naming an import such as `sys_xxx` ("failed to link"): the program uses a `sys_*` call that this firmware does not have (firmware older than `mini.h`): reflash the firmware (`app-flash`).
+- `AOT module load failed: ... reference types is not enabled`: you built with a toolchain that emits ref-types; use the freestanding flags above.
+- A crash (`Guru Meditation ... LoadProhibited`) inside AOT code on first run: wrong wamrc flags (`--size-level` != 0), or wamrc/runtime version mismatch.
+- `busy: another program is running` : the run lock timed out (10 s).
+- `exception: ... out of bounds memory access`: your program overran its 64 KB linear memory (static arrays + stack must fit).
+
+## 9. Using and extending the OS (reference)
+
+### 9.1 Shell
+Login: `ssh esp@host`; default password `esp32` (change with `passwd`; `passwd --reset` restores the build-time default). Start directory `/esp`.
+Built-ins: `help ls cd pwd cat echo mkdir rmdir rm mv cp put sha256sum df free uptime ps uname hostname whoami ifconfig wifi sleep clear reboot exit logout passwd gpio adc pwm dac i2c www service systemctl`.
+The built-in shell supports `|`, `<`, `>`, `>>`, `2>`, `2>&1` but not `;`, `&&`, variables: run `sh` for the full language (`sh script.sh args`, `sh -c '...'`, or interactive).
+Network: `hostname NAME` (live; reachable as NAME.local), `ifconfig` (status), `ifconfig dhcp`, `ifconfig static IP MASK GW [DNS]` (then `reboot`), `wifi scan|set SSID [PASS]|clear` (then `reboot`).
+Hardware: `gpio 2 1`, `gpio 5 in`, `adc 34`, `pwm 2 1000 25`, `pwm 2 off`, `dac 25 128`, `i2c scan|read ADDR N|write ADDR BYTES...`.
+
+### 9.2 Web server
+Native C in `main/www.c` (esp_http_server): `GET /path` serves `~/www/path` (`/` and directories serve `index.html`; correct MIME types incl. wasm, svg, json, css, js, images); `GET /cgi-bin/NAME?args` runs `~/www/cgi-bin/NAME.aot` (stdout = response; 503 when busy; 504 after 8 s). No authentication, GET only, no percent-decoding. Publish with `ssh host "put ~/www/index.html" < index.html`.3 Drivers (firmware side)
+`main/drivers.c` is the one place that touches ESP-IDF drivers; `aot_run.c` and `shell.c` call `drv_*`. Legacy `driver/i2c.h` is used (deprecated warning is harmless).
+
+### 9.4 Services (systemd-like)
+Commands: `service list | status N | start N | stop N | restart N | enable N | disable N | log N | new N ... -- CMD | rm N | reload`.
+Native: `sshd` (stop = no new connections; current session unaffected), `www`, `mdns`; boot flag in NVS.
+Unit file `/etc/services/NAME.service`:
+```
+[Service]
+Description=Log the sonar distance every 10 s (example)
+ExecStart=/bin/sonar -j -s 3                     # program + args; bare names are searched in ~/.local/bin then /bin
+Interval=10                                      # seconds between runs (timer style); 0 = run once/daemon
+Restart=no                                       # no | always | on-failure (only for Interval=0)
+RestartSec=5
+Output=/esp/www/sonar.log                        # also append to this file (reset when > 32 KB)
+Enabled=true                                     # start at boot
+```
+Create: write the file (`ssh host "put /etc/services/X.service" < X.service` then `service reload`) or `service new X --every 10 --output ~/www/x.log -- sonar -j`. RAM log (1 KB ring, lines prefixed `[uptime-seconds]`) via `service log X`. A long-running (`Interval=0`) service holds the run lock for its whole life (SSH programs and web requests then wait/503): prefer short interval jobs. Max 8 services.
+
+### 9.5 Adding a new syscall (extending the firmware)
+1. Implement the hardware/OS function (put driver code in `main/drivers.c` + `drivers.h`; add the component to `REQUIRES` in `main/CMakeLists.txt` if it is a new IDF component).
+2. In `main/aot_run.c` add `static int sys_xxx_(wasm_exec_env_t env, ...)` and one line in `s_natives[]`: `{ "sys_xxx", sys_xxx_, "(sig)ret" }`. Signature letters: `i` int32, `I` int64, `f`/`F` float/double, `$` NUL-terminated string (validated), `*` pointer (validated) followed by `~` = byte length of that buffer (e.g. `"(i*~)i"` is `(int fd, void *buf, int n)`), `()` no params, no return letter = void. Pointers arrive as native pointers already translated and bounds-checked.
+3. Declare it in `programs/mini.h` with `SYS("sys_xxx") int sys_xxx(...);`.
+4. `idf.py -p PORT build app-flash`, rebuild programs, test over ssh. Old firmware lacking the syscall makes new programs fail to load: keep firmware and `mini.h` in step.
+Natives run on the program's thread; they must not block for long without a way out (use `interrupted(env)` style checks like `sys_sleep_ms_`), because Ctrl-C and the web 8 s timeout rely on that.
+
+## 10. Verification recipes (use these after any change)
+
+- Quick health: `ssh esp@HOST "uname"` (rc 0), `ssh esp@HOST free`, `curl -s -o /dev/null -w '%{http_code}' http://HOST/` (expect 200).
+- Soak: run 30-50 mixed ssh commands (`uname`, `hello`, `echo a | wc`, `ls -la ~`, `sh -c 'echo $((6*7))'`) with ~1 s gaps and count empty outputs (expect 0).
+- Transfers: upload a 200 KB random file with `put`, compare `sha256sum` on host and device, download with `cat` and `cmp`; repeat 5x.
+- Terminal UIs without a terminal: spawn `ssh -tt` under a python `pty` with a window size set via `TIOCSWINSZ`, send keys, capture bytes, render with `pyte`.
+- Memory: compare `free` before/after 25 program runs; DRAM should stay within ~1 KB (no leaks). Idle numbers vary with open sessions and web polling; state the conditions when quoting them.
+- Serial log while testing: `python mon.py /dev/ttyUSB0 SECONDS` (it resets the board via RTS first). Look for `ssh:` warnings (`read error`, `flush failed`), `aot:`/`svc:`/`www:` lines and any `Guru Meditation`.
+- Before declaring done after firmware changes: full regression = transfers + `sh` scripts + `btop` 15 s at a large pty size + web CGI calls + a short soak.
+
+## 11. Hard-won gotchas (internals; read before changing the firmware)
+
+1. **wamrc must come from source with the Xtensa LLVM backend, same tag as the runtime.** Prebuilt binaries lack Xtensa. LLVM 18 + GCC >= 14 needs `CXXFLAGS="-include cstdint"`.
+2. **`--size-level=0`** for Xtensa AOT (literal pools). `--xip` unusable. Default opt-level 2.
+3. **Freestanding wasm** (not wasi-libc): wasi-libc `printf` etc. cost ~25 KB; WASI filesystem calls are unsupported by WAMR's ESP-IDF platform layer (no `openat`); newer wasi-sdk libc objects use reference types.
+4. **WAMR needs pthreads**: `pthread_self()` asserts on plain FreeRTOS tasks. Programs always run on `esp_pthread` threads.
+5. **The AOT loader keeps pointers into the `.aot` file buffer** (`wasm_binary_freeable` is a no-op for AOT in 2.4.5): keep the buffer until unload.
+6. **Linear memory comes from `os_mmap`**; the firmware wraps `os_mmap/os_munmap` at link time (`-Wl,--wrap=...` in `main/CMakeLists.txt`) to hand out two slots reserved at boot (DRAM + IRAM) because an SSH session fragments DRAM and no 64 KB block remains later.
+7. **Single-core build** is required for `CONFIG_ESP32_IRAM_AS_8BIT_ACCESSIBLE_MEMORY`; allocate IRAM bytes with `MALLOC_CAP_IRAM_8BIT`. AOT text uses `MALLOC_CAP_EXEC` from the same physical pool.
+8. **wolfSSH quirks** (all handled in `ssh_server.c`; keep in mind when touching it): the resize-callback API is not built on ESP (terminal size is read from `ssh->widthChar/heightRows`); after a client channel-EOF `wolfSSH_stream_read` refuses to return buffered data and wolfSSH auto-replies EOF, which makes OpenSSH drop later output (a configure-time patch in `main/CMakeLists.txt` removes the auto-EOF; it is idempotent and re-applied after the component manager re-downloads); data that arrives together with the exec request must be buffered (`pre[]`); `wolfSSH_worker` is used (not `stream_read`) to process window updates during heavy output and after stdin EOF; subsystem requests (scp/sftp) are rejected immediately; the socket is non-blocking and closes gracefully (half-close, drain) so output is not lost to an RST.
+9. **Exec stdin is read lazily** (only when the command asks) so the client's EOF is not consumed early.
+10. **`rm -f sdkconfig`** after editing `sdkconfig.defaults`. `idf.py flash` re-images LittleFS; use `app-flash` to keep user files. `managed_components/` is gitignored and regenerated (needs internet).
+11. **`esp_netif_str_to_ip4` returns `esp_err_t`** (0 = success), not bool.
+12. **Python 3.13/3.14 are too new for ESP-IDF 5.3**; use a 3.11 environment.
+13. **Static arrays in the firmware shrink the heap permanently**; allocate lazily (service logs are malloc'ed on first use).
+14. **`httpd` has one task**: do not make request handlers wait long (CGI waits ~1 s for the run lock, then 503).
+15. **No RTC / NTP**: all timestamps are uptime seconds.
+16. **Credentials are baked into the image**; anyone with a flash dump can read them.
+17. When testing from scripts: do not `pkill -f` with a pattern that can match your own shell; kill by PID. Use `timeout` on every ssh call; the single SSH session slot means a hung client can block others until liveness detection frees it (~1-4 s after the client dies).
+
+## 12. Security and licensing
+
+- SSH: password auth only, one account (`esp`), default `esp32` (weak: change it). 1.5 s delay per failed login. Web port 80 has **no authentication**; CGI arguments are character-filtered. Use on a trusted network.
+- wolfSSL and wolfSSH are **GPLv3** (or commercial); a distributed firmware image containing them is a GPL combination. WAMR is Apache-2.0 with LLVM exception; ESP-IDF Apache-2.0; LittleFS BSD.
+
+## 13. Known limitations / ideas
+
+Single user, one program at a time, one nesting level, no scp/sftp, no TLS/HTTPS, no public-key SSH auth, no sockets for AOT programs (a web server written as an AOT program would need `sys_socket/bind/listen/accept/recv/send`), no BLE/Bluetooth (RAM), no globbing/functions/background jobs in `sh`, programs limited to 64 KB of memory. Natural next steps: socket syscalls, per-task program contexts to allow concurrent programs, sftp, key auth, OTA updates, BLE (NimBLE) if RAM allows.
+
+## Appendix A: helper scripts (recreate; they live outside the repo in `~/esp/tools/`)
+
+`~/esp/tools/askpass.sh` (chmod 700):
+```sh
+#!/bin/sh
+cat /ABSOLUTE/PATH/TO/REPO/.creds/esp32_ssh_password
+```
+`~/esp/tools/essh` (chmod 755): non-interactive ssh to the device with that password. `ESP_IP` overrides the address.
+```sh
+#!/bin/sh
+# usage: essh [-t] [command...]
+IP=${ESP_IP:-esp-minix.local}
+OPTS=""
+[ "$1" = "-t" ] && { OPTS="-tt"; shift; }
+exec env SSH_ASKPASS=$HOME/esp/tools/askpass.sh SSH_ASKPASS_REQUIRE=force DISPLAY=none \
+  ssh $OPTS -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$HOME/esp/tools/known_hosts \
+  -o PreferredAuthentications=password -o PubkeyAuthentication=no -o ConnectTimeout=15 esp@$IP "$@"
+```
+`~/esp/tools/mon.py` (serial capture without a TTY; resets the board through RTS; run with the IDF python env, as a user in `dialout`):
+```python
+import sys, time, serial
+port = sys.argv[1]; secs = float(sys.argv[2]) if len(sys.argv) > 2 else 8
+s = serial.Serial(port, 115200, timeout=0.2)
+s.dtr = False; s.rts = True; time.sleep(0.1); s.rts = False
+end = time.time() + secs; buf = b''
+while time.time() < end: buf += s.read(512)
+sys.stdout.write(buf.decode('utf-8', 'replace'))
+```
+Environment script `~/esp/env.sh`: `export PATH=$HOME/.miniconda3/envs/idfpy/bin:$PATH; . $HOME/esp/esp-idf/export.sh >/dev/null 2>&1`.
+
+## Appendix B: cheat sheet
+
+```
+# flash a new board (full)            cd esp32_unix && rm -f sdkconfig && idf.py -p /dev/ttyUSB0 build flash
+# update firmware, keep files         idf.py -p /dev/ttyUSB0 build app-flash
+# wipe everything on a board          esptool.py --chip esp32 -p /dev/ttyUSB0 erase_flash
+# new program                         edit programs/x.c ; programs/build.sh x.c ; ssh esp@H "put ~/.local/bin/x.aot" < fs_image/bin/x.aot
+# new web endpoint                    OUT=../fs_image/esp/www/cgi-bin programs/build.sh x.c ; put to ~/www/cgi-bin/x.aot ; curl http://H/cgi-bin/x
+# new background job                  service new x --every 60 -- x ; service enable x ; service start x
+# find the board on the network       ping esp-minix.local ; or read the serial log ("got ip ...")
+# decode a crash                      xtensa-esp32-elf-addr2line -pfiaC -e build/esp32_unix.elf 0xPC...
+# versions                            ESP-IDF v5.3.2, WAMR WAMR-2.4.5, wasi-sdk 34, wolfSSH 1.4.20, wolfSSL 5.8.x, LLVM xtensa_release_18.1.2, littlefs ^1.20
+```

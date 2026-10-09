@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>esp-minix</title>
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--fg:#17202a;--mute:#6b7785;--acc:#2b8cd8;--ok:#2e9e5b;--bar:#e3e8ed}
+@media(prefers-color-scheme:dark){:root{--bg:#10161c;--card:#1a232c;--fg:#e6edf3;--mute:#8b98a5;--bar:#2a3641}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px system-ui,sans-serif}
+main{max-width:760px;margin:0 auto;padding:16px}
+header{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:6px 0 14px}
+h1{font-size:24px;margin:0}.sub{color:var(--mute);font-size:14px}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--mute);margin-right:6px}.dot.ok{background:var(--ok)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.card{background:var(--card);border-radius:12px;padding:14px 16px;box-shadow:0 1px 3px #0002}
+.card h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--mute);margin:0 0 8px}
+.big{font-size:24px;font-weight:700}
+.bar{height:8px;background:var(--bar);border-radius:4px;overflow:hidden;margin:6px 0 4px}.bar i{display:block;height:100%;background:var(--acc);width:0;transition:width .5s}
+a.tile{display:block;text-decoration:none;color:inherit}a.tile:hover{outline:2px solid var(--acc)}
+code{background:var(--bar);padding:1px 6px;border-radius:4px;font-size:14px}
+ul{margin:6px 0 0;padding-left:18px}li{margin:3px 0}
+</style></head><body><main>
+<header><h1 id="host">esp-minix</h1><span class="sub"><span class="dot" id="dot"></span><span id="status">connecting&hellip;</span></span></header>
+<div class="grid">
+ <div class="card"><h2>Uptime</h2><div class="big" id="up">--</div><div class="sub" id="cpu">--</div></div>
+ <div class="card"><h2>Network</h2><div class="big" id="ip">--</div><div class="sub" id="wifi">--</div></div>
+ <div class="card"><h2>Memory (DRAM)</h2><div class="big" id="ram">--</div><div class="bar"><i id="ramb"></i></div><div class="sub" id="iram">--</div></div>
+ <div class="card"><h2>Storage</h2><div class="big" id="fs">--</div><div class="bar"><i id="fsb"></i></div><div class="sub" id="tasks">--</div></div>
+</div>
+<div class="grid" style="margin-top:12px">
+ <div class="card"><h2>Connect</h2><ul>
+  <li>SSH: <code id="ssh">ssh esp@esp-minix.local</code></li>
+  <li>Update firmware: <code>tools/ota.sh <span id="ip2">host</span></code></li>
+  <li>Install programs: <code>ssh host "put ~/.local/bin/x.aot" &lt; x.aot</code></li>
+  <li>Web files: <code>~/www</code>; CGI programs: <code>~/www/cgi-bin/NAME.aot</code></li>
+ </ul></div>
+</div>
+<script>
+const $=i=>document.getElementById(i);
+const kb=b=>b>=1048576?(b/1048576).toFixed(1)+' MB':Math.round(b/1024)+' KB';
+const dur=s=>{const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return(d?d+'d ':'')+(h||d?h+'h ':'')+m+'m '+s%60+'s'};
+async function sys(){
+  try{
+    const r=await fetch('/cgi-bin/sysinfo?'+Date.now());
+    if(r.status===503){$('status').textContent='busy, retrying…';return}
+    const s=await r.json();
+    $('host').textContent=s.host; document.title=s.host;
+    $('up').textContent=dur(s.uptime); $('cpu').textContent=s.mhz+' MHz · '+s.tasks+' tasks';
+    $('ip').textContent=s.ip; $('wifi').textContent=s.ssid+' ('+s.rssi+' dBm)';
+    const used=s.dram_total-s.dram_free;
+    $('ram').textContent=kb(s.dram_free)+' free'; $('ramb').style.width=(used/s.dram_total*100)+'%';
+    $('iram').textContent='of '+kb(s.dram_total)+' · IRAM pool '+kb(s.iram_free)+' free';
+    $('fs').textContent=kb(s.fs_used)+' used'; $('fsb').style.width=(s.fs_used/s.fs_total*100)+'%';
+    $('tasks').textContent='of '+kb(s.fs_total);
+    $('ssh').textContent='ssh esp@'+s.host+'.local'; $('ip2').textContent=s.ip;
+    $('dot').className='dot ok'; $('status').textContent='online · '+new Date().toLocaleTimeString();
+  }catch(e){$('dot').className='dot';$('status').textContent='unreachable'}
+}
+sys();setInterval(sys,5000);
+</script></main></body></html>

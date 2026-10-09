@@ -1,0 +1,65 @@
+dependencies:
+  espressif/mdns:
+    component_hash: b5b30022c46302eab89c1d2e3b6fb5918a627563a7462f0ee284b22b9a934967
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.14.0
+  idf:
+    source:
+      type: idf
+    version: 5.3.2
+  joltwallet/littlefs:
+    component_hash: 3af20a3d75c49db9dc2286fd50862c34055c9f578419ad1f2bf7ed3ed01391fe
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.22.3
+  wasm-micro-runtime:
+    component_hash: 1f154c1141d1fcd9f3dbaa38bdf91071a45d54271ffff072d82b4fe478443e4a
+    dependencies:
+    - name: idf
+      version: '>=4.4'
+    source:
+      git: https://github.com/bytecodealliance/wasm-micro-runtime.git
+      path: .
+      type: git
+    targets:
+    - esp32
+    - esp32s3
+    - esp32c3
+    - esp32c6
+    - esp32p4
+    - esp32c5
+    version: 25bd7eb63e828e4bd242cc9b38d260b4b31c6605
+  wolfssl/wolfssh:
+    component_hash: 24d623360c07374a90b1ade8d1218b24bb7b661fd51ace9135dccf510a338927
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.4.20
+  wolfssl/wolfssl:
+    component_hash: 4d619e882c19d967bbaa53302e3bd2bdb8c611b5efb13302171aace809fccfdf
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 5.8.2~1
+direct_dependencies:
+- espressif/mdns
+- joltwallet/littlefs
+- wasm-micro-runtime
+- wolfssl/wolfssh
+- wolfssl/wolfssl
+manifest_hash: 48d833e1f77bcebdfdb3b23f54461339d9992f9542b3628942ea6782bfaf4aee
+target: esp32
+version: 2.0.0

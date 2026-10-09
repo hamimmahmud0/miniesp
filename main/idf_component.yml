@@ -1,0 +1,8 @@
+dependencies:
+  wasm-micro-runtime:
+    git: https://github.com/bytecodealliance/wasm-micro-runtime.git
+    version: WAMR-2.4.5
+  joltwallet/littlefs: "^1.20.0"
+  wolfssl/wolfssh: "^1.4.20"
+  wolfssl/wolfssl: "^5.7.6"
+  espressif/mdns: "^1.4.0"

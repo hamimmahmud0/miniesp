@@ -1,0 +1,5 @@
+[Service]
+Description=Blink the on-board LED (GPIO2) once every 5 s
+ExecStart=/bin/blink 2 1
+Interval=5
+Enabled=false
