@@ -42,7 +42,7 @@ file(WRITE "${CMAKE_BINARY_DIR}/generated/creds.h"
 "#define CRED_WIFI_PASS \"${C_WIFI_PASS}\"\n"
 "#define CRED_SSH_USER  \"esp\"\n"
 "#define CRED_SSH_PASS  \"${C_SSH_PASS}\"\n"
-"#define CRED_AP_SSID   \"esp32-unix\"\n"
+"#define CRED_AP_SSID   \"miniesp\"\n"
 "#define CRED_AP_PASS   \"${C_AP_PASS}\"\n")
 
 # ---- Pack fs_image (programs in /bin, /etc ...) into the LittleFS partition ----
@@ -77,9 +77,9 @@ if(EXISTS "${WOLFSSH_INTERNAL}")
             _wssh_patched "${_wssh_src}")
         if(NOT _wssh_patched STREQUAL _wssh_src)
             file(WRITE "${WOLFSSH_INTERNAL}" "${_wssh_patched}")
-            message(STATUS "esp32-unix: patched wolfSSH DoChannelEof (no automatic EOF reply)")
+            message(STATUS "miniesp: patched wolfSSH DoChannelEof (no automatic EOF reply)")
         else()
-            message(WARNING "esp32-unix: wolfSSH DoChannelEof patch did not apply (library layout changed?)")
+            message(WARNING "miniesp: wolfSSH DoChannelEof patch did not apply (library layout changed?)")
         endif()
     endif()
 endif()

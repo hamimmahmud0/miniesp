@@ -379,11 +379,25 @@ static int sys_tcp_connect_(wasm_exec_env_t env, const char *host, int port, int
     int s = socket(AF_INET, SOCK_STREAM, 0);
     if (s < 0) { freeaddrinfo(res); return -1; }
     if (timeout_ms <= 0) timeout_ms = 5000;
-    struct timeval tv = { timeout_ms / 1000, (timeout_ms % 1000) * 1000 };
-    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+    // lwIP ignores SO_SNDTIMEO for connect(): a silent host would block for minutes. Connect non-blocking and wait with select(),
+    // in slices so that Ctrl-C works.
+    int fl = fcntl(s, F_GETFL, 0);
+    fcntl(s, F_SETFL, fl | O_NONBLOCK);
     int rc = connect(s, res->ai_addr, res->ai_addrlen);
     freeaddrinfo(res);
+    if (rc && errno == EINPROGRESS) {
+        TickType_t t0 = xTaskGetTickCount(), lim = pdMS_TO_TICKS(timeout_ms);
+        rc = -1;
+        for (;;) {
+            fd_set ws; FD_ZERO(&ws); FD_SET(s, &ws);
+            struct timeval tv = { 0, 100000 };
+            int r = select(s + 1, NULL, &ws, NULL, &tv);
+            if (r > 0) { int err = 0; socklen_t el = sizeof err; getsockopt(s, SOL_SOCKET, SO_ERROR, &err, &el); rc = err ? -1 : 0; break; }
+            if (r < 0 || (TickType_t)(xTaskGetTickCount() - t0) >= lim || interrupted(env)) break;
+        }
+    }
     if (rc) { close(s); return -1; }
+    fcntl(s, F_SETFL, fl);
     return add_fd(io_new_sock(s, SOCK_STREAM, false));
 }
 static int sys_tcp_listen_(wasm_exec_env_t env, int port)
@@ -690,6 +704,11 @@ int aot_run_nolock(term_t *t, const char *cwd, const char *vpath, int argc, char
     if (!inst) {
         char m[200]; int l = snprintf(m, sizeof m, "%s: instantiate failed: %s\n", vpath, ebuf);
         io_write(err, m, l);
+        if (me->parent && strstr(ebuf, "linear memory")) {
+            static const char hint[] = "(not enough RAM to run a program inside a program: a second 64 KB program memory does not fit; "
+                                       "inside sh use built-in commands such as ls cat grep head wc)\n";
+            io_write(err, hint, sizeof hint - 1);
+        }
     } else {
         wasm_module_inst_t saved = s_inst;
         if (!me->parent) { t->sigint = false; t->on_sigint = aot_interrupt; }
@@ -752,9 +771,19 @@ static struct { uint8_t *base; bool busy; } s_slot[2];
 
 void aot_reserve_pool(void)
 {
+    static bool done;
+    if (done) return;                                // called early from app_main and again from aot_init
+    done = true;
     s_slot[0].base = heap_caps_malloc(SLOT_SIZE, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
     s_slot[1].base = heap_caps_malloc(SLOT_SIZE, MALLOC_CAP_IRAM_8BIT);
     ESP_LOGI(TAG, "linear-memory slots: DRAM %s, IRAM %s", s_slot[0].base ? "ok" : "missing", s_slot[1].base ? "ok" : "missing");
+}
+
+// For "free": state of the two linear-memory slots, e.g. "DRAM free, IRAM missing".
+void aot_slot_info(char *out, size_t n)
+{
+    snprintf(out, n, "DRAM %s, IRAM %s (slot %d bytes)", !s_slot[0].base ? "missing" : s_slot[0].busy ? "busy" : "free",
+             !s_slot[1].base ? "missing" : s_slot[1].busy ? "busy" : "free", SLOT_SIZE);
 }
 
 void *__real_os_mmap(void *hint, size_t size, int prot, int flags, os_file_handle file);

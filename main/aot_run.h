@@ -15,3 +15,4 @@ void aot_unlock(void);
 // Run without taking the lock: the caller must hold it (aot_lock).
 int aot_run_nolock(term_t *t, const char *cwd, const char *vpath, int argc, char **argv, io_t *in, io_t *out, io_t *err);
 bool aot_interactive_busy(void);                    // a program attached to a terminal holds the runtime (waiting for it is pointless)
+void aot_slot_info(char *out, size_t n);       // linear-memory slot status text (for the free command)

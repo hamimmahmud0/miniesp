@@ -404,7 +404,7 @@ static void server_task(void *arg)
     wolfSSH_CTX_SetChannelReqExecCb(s_ctx, cb_exec);
     wolfSSH_CTX_SetChannelReqSubsysCb(s_ctx, cb_subsys);
     wolfSSH_CTX_SetChannelEofCb(s_ctx, cb_eof);
-    wolfSSH_CTX_SetBanner(s_ctx, "esp32-unix\n");
+    wolfSSH_CTX_SetBanner(s_ctx, "miniesp\n");
     wolfSSH_CTX_SetWindowPacketSize(s_ctx, 4096, 1400);
     int ksz = hostkey_end - hostkey_start;
     if (wolfSSH_CTX_UsePrivateKey_buffer(s_ctx, hostkey_start, ksz, WOLFSSH_FORMAT_ASN1) != WS_SUCCESS) {

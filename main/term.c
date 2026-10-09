@@ -94,16 +94,17 @@ int term_getc(term_t *t, int timeout_ms)
     }
 }
 
-static void redraw(term_t *t, const char *prompt, const char *buf, size_t len)
+static void redraw(term_t *t, const char *prompt, const char *buf, size_t len, size_t pos)
 {
     term_puts(t, "\r\x1b[K");
     term_puts(t, prompt);
     term_write(t, buf, len);
+    if (pos < len) { char m[16]; snprintf(m, sizeof m, "\x1b[%uD", (unsigned)(len - pos)); term_puts(t, m); }
 }
 
 int term_readline(term_t *t, const char *prompt, char *buf, size_t n, bool hist)
 {
-    size_t len = 0;
+    size_t len = 0, pos = 0;                      // pos: cursor position inside buf (0..len)
     int hpos = t->hist_n;                         // == hist_n means "the new line being typed"
     char saved[TERM_LINE] = "";
     if (n > TERM_LINE) n = TERM_LINE;
@@ -113,11 +114,16 @@ int term_readline(term_t *t, const char *prompt, char *buf, size_t n, bool hist)
         if (c == -1) continue;
         if (c == -2) return -1;
         if (c == -3) { t->sigint = false; term_puts(t, "^C\n"); return -2; }
-        if (c == 0x1b) {                          // escape sequence: handle up/down, swallow the rest
+        if (c == 0x1b) {                          // escape sequence: arrows, Home/End, Delete; others are swallowed
             int c2 = term_getc(t, 50);
             if (c2 != '[' && c2 != 'O') continue;
-            int fin;
-            do { fin = term_getc(t, 50); } while (fin >= 0 && !(fin >= 0x40 && fin <= 0x7e));
+            int fin, num = 0;
+            for (;;) {
+                fin = term_getc(t, 50);
+                if (fin >= '0' && fin <= '9') { num = num * 10 + (fin - '0'); continue; }
+                if (fin == ';') { num = 0; continue; }
+                break;
+            }
             if (hist && (fin == 'A' || fin == 'B')) {
                 if (hpos == t->hist_n) { memcpy(saved, buf, len); saved[len] = 0; }
                 if (fin == 'A' && hpos > 0) hpos--;
@@ -125,7 +131,19 @@ int term_readline(term_t *t, const char *prompt, char *buf, size_t n, bool hist)
                 const char *src = hpos == t->hist_n ? saved : t->hist[hpos];
                 len = strlen(src); if (len >= n) len = n - 1;
                 memcpy(buf, src, len);
-                redraw(t, prompt, buf, len);
+                pos = len;
+                redraw(t, prompt, buf, len, pos);
+            } else if (!t->noecho) {
+                bool home = fin == 'H' || (fin == '~' && (num == 1 || num == 7));
+                bool end = fin == 'F' || (fin == '~' && (num == 4 || num == 8));
+                if (fin == 'D' && pos > 0) { pos--; term_puts(t, "\x1b[D"); }
+                else if (fin == 'C' && pos < len) { pos++; term_puts(t, "\x1b[C"); }
+                else if (home && pos) { pos = 0; redraw(t, prompt, buf, len, pos); }
+                else if (end && pos < len) { pos = len; redraw(t, prompt, buf, len, pos); }
+                else if (fin == '~' && num == 3 && pos < len) {          // Delete
+                    memmove(buf + pos, buf + pos + 1, len - pos - 1); len--;
+                    redraw(t, prompt, buf, len, pos);
+                }
             }
             continue;
         }
@@ -139,20 +157,29 @@ int term_readline(term_t *t, const char *prompt, char *buf, size_t n, bool hist)
             }
             return (int)len;
         }
-        if (c == 0x04) {                          // Ctrl-D: EOF on empty line
+        if (c == 0x04) {                          // Ctrl-D: EOF on empty line, else delete under the cursor
             if (len == 0) return -1;
+            if (pos < len && !t->noecho) { memmove(buf + pos, buf + pos + 1, len - pos - 1); len--; redraw(t, prompt, buf, len, pos); }
             continue;
         }
-        if (c == 0x7f || c == 0x08) {
-            if (len) { len--; if (!t->noecho) term_puts(t, "\b \b"); }
+        if (c == 0x7f || c == 0x08) {             // Backspace: delete before the cursor
+            if (pos) {
+                memmove(buf + pos - 1, buf + pos, len - pos); len--; pos--;
+                if (!t->noecho) { if (pos == len) term_puts(t, "\b \b"); else redraw(t, prompt, buf, len, pos); }
+            }
             continue;
         }
-        if (c == 0x15) { len = 0; redraw(t, prompt, buf, 0); continue; }     // Ctrl-U
-        if (c == 0x0c) { term_puts(t, "\x1b[2J\x1b[H"); redraw(t, prompt, buf, len); continue; }  // Ctrl-L
+        if (c == 0x01 && !t->noecho) { pos = 0; redraw(t, prompt, buf, len, pos); continue; }          // Ctrl-A
+        if (c == 0x05 && !t->noecho) { pos = len; redraw(t, prompt, buf, len, pos); continue; }        // Ctrl-E
+        if (c == 0x15) { len = pos = 0; redraw(t, prompt, buf, 0, 0); continue; }                      // Ctrl-U
+        if (c == 0x0c) { term_puts(t, "\x1b[2J\x1b[H"); redraw(t, prompt, buf, len, pos); continue; }  // Ctrl-L
         if (c >= 0x20 && c < 0x7f && len < n - 1) {
-            buf[len++] = (char)c;
-            char ch = (char)c;
-            if (!t->noecho) term_write(t, &ch, 1);
+            memmove(buf + pos + 1, buf + pos, len - pos);
+            buf[pos++] = (char)c; len++;
+            if (!t->noecho) {
+                if (pos == len) { char ch = (char)c; term_write(t, &ch, 1); }          // typing at the end: just echo
+                else redraw(t, prompt, buf, len, pos);                                  // inserting in the middle
+            }
         }
     }
 }

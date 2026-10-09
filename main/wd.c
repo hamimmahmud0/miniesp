@@ -113,7 +113,7 @@ static void wd_task(void *arg)
         if (ssh_server_running() && !ssh_session_active()) {
             if (probe(ip, 22)) { ssh_fails = 0; stage = 0; } else ssh_fails++;
         } else ssh_fails = 0;
-        if (www_running()) { if (probe(ip, 80)) www_fails = 0; else www_fails++; } else www_fails = 0;
+        if (www_running()) { if (probe(ip, www_port())) www_fails = 0; else www_fails++; } else www_fails = 0;
 
         if (www_fails >= FAILS_TO_ACT) {
             diagnostics("web server not accepting connections: restarting it");

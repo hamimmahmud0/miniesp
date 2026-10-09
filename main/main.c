@@ -1,4 +1,4 @@
-// esp32-unix: ESP-IDF firmware exposing a unix-like shell over SSH, running WAMR AOT programs from LittleFS.
+// miniesp: ESP-IDF firmware exposing a unix-like shell over SSH, running WAMR AOT programs from LittleFS.
 #include <stdio.h>
 #include "esp_log.h"
 #include "esp_system.h"
@@ -16,8 +16,11 @@
 
 static const char *TAG = "main";
 
+void aot_reserve_pool(void);
+
 void app_main(void)
 {
+    aot_reserve_pool();        // first: the IRAM slot needs one big block, before anything small lands in the middle of the pool
     esp_err_t e = nvs_flash_init();
     if (e == ESP_ERR_NVS_NO_FREE_PAGES || e == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());

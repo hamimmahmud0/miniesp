@@ -65,7 +65,7 @@ static void mdns_start(void) { wifi_mgr_mdns(true); }
 static void mdns_stop(void) { wifi_mgr_mdns(false); }
 static const native_t NATIVE[] = {
     { "sshd", "SSH server (port 22)", ssh_server_running, ssh_server_start, ssh_server_stop },
-    { "www", "web server (port 80)", www_running, www_start, www_stop },
+    { "www", "web server (HTTP)", www_running, www_start, www_stop },
     { "mdns", "<hostname>.local name responder", mdns_running, mdns_start, mdns_stop },
     { "mqtt", "MQTT client (see: mqtt status)", mqtt_running, mqtt_start, mqtt_stop },
     { "watchdog", "probes sshd/www, self-heals, writes /www/stall.log", wd_running, wd_start, wd_stop },

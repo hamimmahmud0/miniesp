@@ -130,7 +130,7 @@ static void start_mdns(void)
     if (s_mdns_up) return;
     if (mdns_init() != ESP_OK) { ESP_LOGW(TAG, "mDNS init failed"); return; }
     mdns_hostname_set(s_hostname);
-    mdns_instance_name_set("esp32-unix");
+    mdns_instance_name_set("miniesp");
     mdns_service_add(NULL, "_ssh", "_tcp", 22, NULL, 0);
     s_mdns_up = true;
     ESP_LOGI(TAG, "mDNS: %s.local", s_hostname);

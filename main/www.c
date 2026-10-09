@@ -18,6 +18,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "io.h"
+#include "kv.h"
 #include "term.h"
 #include "wifi_mgr.h"
 
@@ -76,7 +77,16 @@ static esp_err_t serve_file(httpd_req_t *req, const char *rel)
     if (strncmp(v, WWW_ROOT, rl) || (v[rl] && v[rl] != '/')) return send_text(req, "403 Forbidden", "forbidden\n");
     fs_host_path(v, host, sizeof host);
     struct stat st;
-    if (!stat(host, &st) && S_ISDIR(st.st_mode)) { strlcat(host, "/index.html", sizeof host); strlcat(v, "/index.html", sizeof v); }
+    if (!stat(host, &st) && S_ISDIR(st.st_mode)) {
+        size_t rn = strcspn(rel, "?");
+        if (rn && rel[rn - 1] != '/') {                  // /tank -> /tank/ : the page's relative links (tank.css, ...) need the slash
+            char loc[160]; snprintf(loc, sizeof loc, "/%.*s/", (int)(rn < 150 ? rn : 150), rel);
+            httpd_resp_set_status(req, "301 Moved Permanently");
+            httpd_resp_set_hdr(req, "Location", loc);
+            return httpd_resp_send(req, NULL, 0);
+        }
+        strlcat(host, "/index.html", sizeof host); strlcat(v, "/index.html", sizeof v);
+    }
     FILE *f = fopen(host, "rb");
     if (!f) {
         if (!strcmp(rel, "") || !strcmp(rel, "index.html")) { httpd_resp_set_type(req, "text/html"); return httpd_resp_send(req, DEFAULT_PAGE, sizeof DEFAULT_PAGE - 1); }
@@ -183,7 +193,12 @@ static esp_err_t serve_cgi(httpd_req_t *req, const char *name, const char *query
     }
     esp_err_t e;
     if (j->rc == -4) { httpd_resp_set_hdr(req, "Retry-After", "2"); e = send_text(req, "503 Service Unavailable", "busy: another program (an SSH session or service) is using the runtime, try again\n"); }
-    else if (j->rc < 0 && !j->out->len) e = send_text(req, "500 Internal Server Error", "program could not be run\n");
+    else if (j->rc < 0 && !j->out->len) {
+        char m[200]; size_t el = j->err->len < 150 ? j->err->len : 150;           // include the loader's reason (e.g. not enough RAM)
+        int ml = snprintf(m, sizeof m, "program could not be run: %.*s\n", (int)el, el ? (const char *)j->err->mem : "no details");
+        (void)ml;
+        e = send_text(req, "500 Internal Server Error", m);
+    }
     else {
         const char *body = (const char *)j->out->mem; size_t len = j->out->len;
         const char *type = NULL; char ctype[64];
@@ -227,6 +242,15 @@ static esp_err_t handler(httpd_req_t *req)
 
 int www_running(void) { return s_srv != NULL; }
 
+int www_port(void)                                   // kv "www.port" = 1..65535 (not 22 = SSH); anything else means 80
+{
+    char b[8]; int n = kv_get("www.port", b, sizeof b - 1);
+    if (n <= 0) return 80;
+    b[n] = 0;
+    int p = atoi(b);
+    return p >= 1 && p <= 65535 && p != 22 ? p : 80;
+}
+
 void www_stop(void)
 {
     if (s_srv) { httpd_stop(s_srv); s_srv = NULL; ESP_LOGI(TAG, "web server stopped"); }
@@ -236,6 +260,7 @@ void www_start(void)
 {
     if (s_srv) return;
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
+    cfg.server_port = (uint16_t)www_port();
     cfg.uri_match_fn = httpd_uri_match_wildcard;
     cfg.max_uri_handlers = 2;
     cfg.max_open_sockets = 3;
@@ -246,5 +271,5 @@ void www_start(void)
     if (httpd_start(&s_srv, &cfg) != ESP_OK) { ESP_LOGE(TAG, "httpd_start failed"); return; }
     httpd_uri_t u = { .uri = "/*", .method = HTTP_GET, .handler = handler };
     httpd_register_uri_handler(s_srv, &u);
-    ESP_LOGI(TAG, "web server on port 80, root %s", WWW_ROOT);
+    ESP_LOGI(TAG, "web server on port %d, root %s", www_port(), WWW_ROOT);
 }

@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "esp_app_desc.h"
+#include <strings.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include "aot_run.h"
@@ -150,6 +152,118 @@ static int cmd_ls(sh_t *s, int c, char **v)
         qsort(ents, n, sizeof *ents, ls_cmp);
         for (int i = 0; i < n; i++) ls_print(s, &ents[i], lng);
         free(ents);
+    }
+    return rc;
+}
+
+/* ---- text filters as built-ins: usable from `sh` and pipelines without a second 64 KB program memory ---- */
+typedef struct { io_t *io; char buf[256]; int n, i; } lr_t;
+
+static bool lr_line(lr_t *r, char *line, int cap)                // next line without '\n'; false at EOF
+{
+    int o = 0; bool got = false;
+    for (;;) {
+        if (r->i >= r->n) { r->n = io_read(r->io, r->buf, sizeof r->buf); r->i = 0; if (r->n <= 0) { r->n = 0; break; } }
+        char ch = r->buf[r->i++]; got = true;
+        if (ch == '\n') break;
+        if (o < cap - 1) line[o++] = ch;
+    }
+    line[o] = 0;
+    return got;
+}
+
+// Open the input for a filter: a file, or stdin when path is NULL. Returns NULL (and reports) on error.
+static io_t *filter_open(sh_t *s, const char *cmd, const char *path)
+{
+    if (!path) return s->in;
+    char host[300]; host_of(s, path, host, sizeof host);
+    io_t *f = io_open_file(host, "rb");
+    if (!f) sh_eprintf(s, "%s: %s: %s\n", cmd, path, strerror(errno));
+    return f;
+}
+
+static bool contains_str(const char *line, const char *pat, bool icase)
+{
+    size_t pl = strlen(pat);
+    if (!pl) return true;
+    for (; *line; line++) if (!(icase ? strncasecmp(line, pat, pl) : strncmp(line, pat, pl))) return true;
+    return false;
+}
+
+static int cmd_grep(sh_t *s, int c, char **v)                  // grep [-vci] PATTERN [FILE...]  (plain substring)
+{
+    bool inv = false, cnt = false, ic = false; int i = 1;
+    for (; i < c && v[i][0] == '-' && v[i][1]; i++)
+        for (const char *p = v[i] + 1; *p; p++) { if (*p == 'v') inv = true; else if (*p == 'c') cnt = true; else if (*p == 'i') ic = true; }
+    if (i >= c) { sh_eprintf(s, "usage: grep [-vci] PATTERN [FILE...]\n"); return 2; }
+    const char *pat = v[i++];
+    int nfiles = c - i, total = 0;
+    for (int k = 0; k < (nfiles ? nfiles : 1); k++) {
+        const char *name = nfiles ? v[i + k] : NULL;
+        io_t *in = filter_open(s, "grep", name);
+        if (!in) continue;
+        lr_t *r = calloc(1, sizeof *r); char *line = malloc(512);
+        if (!r || !line) { free(r); free(line); if (name) io_close(in); return 1; }
+        r->io = in;
+        int matches = 0;
+        while (lr_line(r, line, 512)) {
+            if (contains_str(line, pat, ic) == inv) continue;
+            matches++;
+            if (!cnt) { if (nfiles > 1) sh_printf(s, "%s:", name); sh_printf(s, "%s\n", line); }
+            if (s->t->sigint) break;
+        }
+        if (cnt) { if (nfiles > 1) sh_printf(s, "%s:", name); sh_printf(s, "%d\n", matches); }
+        total += matches;
+        free(r); free(line);
+        if (name) io_close(in);
+    }
+    return total ? 0 : 1;
+}
+
+static int cmd_head(sh_t *s, int c, char **v)                  // head [-n N | -N] [FILE]
+{
+    int n = 10, i = 1;
+    if (i + 1 < c && !strcmp(v[i], "-n")) { n = atoi(v[i + 1]); i += 2; }
+    else if (i < c && v[i][0] == '-' && v[i][1] >= '0' && v[i][1] <= '9') { n = atoi(v[i] + 1); i++; }
+    io_t *in = filter_open(s, "head", i < c ? v[i] : NULL);
+    if (!in) return 1;
+    lr_t *r = calloc(1, sizeof *r); char *line = malloc(512);
+    if (!r || !line) { free(r); free(line); if (i < c) io_close(in); return 1; }
+    r->io = in;
+    for (int k = 0; k < n && lr_line(r, line, 512); k++) sh_printf(s, "%s\n", line);
+    free(r); free(line);
+    if (i < c) io_close(in);
+    return 0;
+}
+
+static int cmd_wc(sh_t *s, int c, char **v)                    // wc [-lwc] [FILE...]
+{
+    bool fl = false, fw = false, fc = false; int i = 1;
+    for (; i < c && v[i][0] == '-' && v[i][1]; i++)
+        for (const char *p = v[i] + 1; *p; p++) { if (*p == 'l') fl = true; else if (*p == 'w') fw = true; else if (*p == 'c') fc = true; }
+    if (!fl && !fw && !fc) fl = fw = fc = true;
+    int nfiles = c - i, rc = 0;
+    for (int k = 0; k < (nfiles ? nfiles : 1); k++) {
+        const char *name = nfiles ? v[i + k] : NULL;
+        io_t *in = filter_open(s, "wc", name);
+        if (!in) { rc = 1; continue; }
+        unsigned lines = 0, words = 0, bytes = 0; bool inw = false;
+        char *buf = malloc(256); int got;
+        if (!buf) { if (name) io_close(in); return 1; }
+        while ((got = io_read(in, buf, 256)) > 0) {
+            for (int j = 0; j < got; j++) {
+                char ch = buf[j];
+                if (ch == '\n') lines++;
+                if (ch == ' ' || ch == '\n' || ch == '\t' || ch == '\r') inw = false; else if (!inw) { inw = true; words++; }
+            }
+            bytes += (unsigned)got;
+        }
+        free(buf);
+        if (fl) sh_printf(s, "%7u", lines);
+        if (fw) sh_printf(s, "%s%7u", fl ? " " : "", words);
+        if (fc) sh_printf(s, "%s%7u", fl || fw ? " " : "", bytes);
+        sh_printf(s, "%s%s\n", name ? " " : "", name ? name : "");
+        if (name) io_close(in);
     }
     return rc;
 }
@@ -363,6 +477,8 @@ static int cmd_free(sh_t *s, int c, char **v)
     sh_printf(s, "Exec:    %10u %10u %10u %8u   (IRAM: AOT code)\n", (unsigned)heap_caps_get_total_size(MALLOC_CAP_EXEC),
               (unsigned)heap_caps_get_free_size(MALLOC_CAP_EXEC), (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_EXEC),
               (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_EXEC));
+    char sl[100]; aot_slot_info(sl, sizeof sl);
+    sh_printf(s, "Slots:   %s\n", sl);
     return 0;
 }
 
@@ -390,7 +506,7 @@ static int cmd_ps(sh_t *s, int c, char **v)
 
 static int cmd_uname(sh_t *s, int c, char **v)
 {
-    sh_printf(s, "%s 0.1 ESP-IDF %s Xtensa LX6 (ESP32) WAMR-AOT\n", net_hostname(), esp_get_idf_version());
+    sh_printf(s, "miniesp %s %s ESP-IDF %s Xtensa LX6 (ESP32) WAMR-AOT\n", net_hostname(), esp_app_get_description()->version, esp_get_idf_version());
     return 0;
 }
 static int cmd_hostname(sh_t *s, int c, char **v)
@@ -653,8 +769,10 @@ static int cmd_service(sh_t *s, int c, char **v) { return svc_command(c, v, s->o
 static int cmd_www(sh_t *s, int c, char **v)
 {
     char ip[20]; wifi_mgr_ip(ip, sizeof ip);
-    sh_printf(s, "web server: running on port 80, %u request(s) served\n", (unsigned)www_requests());
-    sh_printf(s, "  site:  http://%s.local/   or   http://%s/\n", net_hostname(), ip[0] ? ip : "<ip>");
+    int port = www_port();
+    char ps[8] = ""; if (port != 80) snprintf(ps, sizeof ps, ":%d", port);
+    sh_printf(s, "web server: running on port %d, %u request(s) served%s\n", port, (unsigned)www_requests(), port != 80 ? "  (kv set www.port N; service restart www)" : "");
+    sh_printf(s, "  site:  http://%s.local%s/   or   http://%s%s/\n", net_hostname(), ps, ip[0] ? ip : "<ip>", ps);
     sh_printf(s, "  files: /www (index.html, assets)     programs: /www/cgi-bin/NAME.aot  ->  /cgi-bin/NAME?arg+arg\n");
     return 0;
 }
@@ -714,6 +832,9 @@ static const struct { const char *name; cmd_fn fn; const char *help; } CMDS[] = 
     { "cd", cmd_cd, "cd [dir]  (no argument: home, ~)" },
     { "pwd", cmd_pwd, "print working directory" },
     { "cat", cmd_cat, "cat [file...]  (stdin if no file)" },
+    { "grep", cmd_grep, "grep [-vci] PATTERN [file...]" },
+    { "head", cmd_head, "head [-n N] [file]" },
+    { "wc", cmd_wc, "wc [-lwc] [file...]" },
     { "echo", cmd_echo, "echo [-n] text" },
     { "mkdir", cmd_mkdir, "mkdir [-p] dir..." },
     { "rmdir", cmd_rmdir, "rmdir dir..." },
