@@ -137,6 +137,6 @@ static void wd_task(void *arg)
     vTaskDelete(NULL);
 }
 
-void wd_start(void) { if (s_run) return; s_run = true; if (!s_task) xTaskCreate(wd_task, "wd", 4096, NULL, 3, &s_task); }
+void wd_start(void) { if (s_run) return; s_run = true; if (!s_task) xTaskCreatePinnedToCore(wd_task, "wd", 4096, NULL, 3, &s_task, 0); }
 void wd_stop(void) { s_run = false; }
 int wd_running(void) { return s_run; }

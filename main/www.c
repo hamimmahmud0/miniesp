@@ -186,6 +186,7 @@ static esp_err_t serve_cgi(httpd_req_t *req, const char *name, const char *query
     if (!j->out || !j->err || !j->done) { job_free(j); return send_text(req, "500 Internal Server Error", "out of memory\n"); }
 
     esp_pthread_cfg_t cfg = esp_pthread_get_default_config();
+    cfg.pin_to_core = 0;
     cfg.stack_size = 10240; cfg.thread_name = "cgi"; cfg.prio = 5;
     pthread_t th;
     if (esp_pthread_set_cfg(&cfg) != ESP_OK || pthread_create(&th, NULL, cgi_worker, j) != 0) { job_free(j); return send_text(req, "500 Internal Server Error", "cannot start program\n"); }
@@ -303,6 +304,7 @@ void www_start(void)
     httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
     cfg.server_port = (uint16_t)www_port();
     cfg.uri_match_fn = httpd_uri_match_wildcard;
+    cfg.core_id = 0;
     cfg.max_uri_handlers = 2;
     cfg.max_open_sockets = 3;
     cfg.stack_size = 5120;

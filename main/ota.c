@@ -103,7 +103,7 @@ int ota_command(int argc, char **argv, io_t *in, io_t *out, io_t *err)
     say(out, "ota: %u bytes written to %s, SHA-256 ", (unsigned)total, p->label);
     for (int i = 0; i < 32; i++) say(out, "%02x", digest[i]);
     say(out, "%s\n", want ? " (verified)" : "");
-    if (reboot) { say(out, "ota: rebooting into the new image (it rolls back by itself if it does not come up healthy)\n"); xTaskCreate(reboot_task, "otareboot", 2048, NULL, 5, NULL); }
+    if (reboot) { say(out, "ota: rebooting into the new image (it rolls back by itself if it does not come up healthy)\n"); xTaskCreatePinnedToCore(reboot_task, "otareboot", 2048, NULL, 5, NULL, 0); }
     else say(out, "ota: new image selected; run 'reboot' to start it\n");
     return 0;
 }
@@ -131,6 +131,6 @@ void ota_healthcheck_start(void)
     esp_ota_img_states_t st;
     if (esp_ota_get_state_partition(esp_ota_get_running_partition(), &st) == ESP_OK && st == ESP_OTA_IMG_PENDING_VERIFY) {
         ESP_LOGW(TAG, "running a new image: waiting to confirm it is healthy");
-        xTaskCreate(healthcheck, "otacheck", 3072, NULL, 3, NULL);
+        xTaskCreatePinnedToCore(healthcheck, "otacheck", 3072, NULL, 3, NULL, 0);
     }
 }

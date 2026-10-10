@@ -121,5 +121,5 @@ void time_init(void)
     sntp_set_time_sync_notification_cb(synced);
     sntp_set_sync_interval(3600 * 1000);
     esp_sntp_init();
-    xTaskCreate(saver, "timesave", 2048, NULL, 1, NULL);
+    xTaskCreatePinnedToCore(saver, "timesave", 2048, NULL, 1, NULL, 0);
 }

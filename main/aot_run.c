@@ -30,6 +30,7 @@
 #include "esp_system.h"
 #include "esp_app_desc.h"
 #include "httpget.h"
+#include "bench.h"
 #include "kv.h"
 #include "mqtt.h"
 #include "timesync.h"
@@ -130,6 +131,8 @@ static int sys_sysinfo_(wasm_exec_env_t env, int what)
     case 11: { wifi_ap_record_t ap; return esp_wifi_sta_get_ap_info(&ap) == ESP_OK ? ap.rssi : 0; }
     case 12: return (int)ets_get_cpu_frequency();                                         // MHz
     case 13: return (int)uxTaskGetNumberOfTasks();
+    case 16: return bench_cores();                                                        // CPU cores running FreeRTOS
+    case 17: return (int)xPortGetCoreID();                                                // core this program runs on
     case 14: return P && P->t ? P->t->cols : 80;
     case 15: return P && P->t ? P->t->rows : 24;
     }
@@ -321,7 +324,7 @@ static int sys_uart_read_(wasm_exec_env_t env, int port, uint8_t *buf, int n, in
 static int sys_uart_close_(wasm_exec_env_t env, int port) { return drv_uart_close(port); }
 
 /* ---------------- Phase 4: files, sockets, time, kv, mqtt, system ---------------- */
-#define SYS_ABI 5                                    // bump when a syscall is added; programs may check sys_abi()
+#define SYS_ABI 6                                    // bump when a syscall is added; programs may check sys_abi()
 
 static int vhost(const char *path, char *host, size_t n)
 {
@@ -597,6 +600,7 @@ static int sys_spi_open_(wasm_exec_env_t env, int sck, int mosi, int miso, int h
 static int sys_spi_xfer_(wasm_exec_env_t env, int cs, uint8_t *tx, int n, uint8_t *rx, int n2) { return n == n2 ? drv_spi_xfer(cs, tx, rx, n) : -1; }
 static int sys_pcnt_open_(wasm_exec_env_t env, int unit, int pin) { return drv_pcnt_open(unit, pin); }
 static int sys_pcnt_read_(wasm_exec_env_t env, int unit) { return drv_pcnt_read(unit); }
+static int sys_bench_(wasm_exec_env_t env, int kind, int cores, int ms, int32_t *out, int n) { return bench_run(kind, cores, ms, out, n); }
 static int sys_pcnt_clear_(wasm_exec_env_t env, int unit) { return drv_pcnt_clear(unit); }
 
 static NativeSymbol s_natives[] = {
@@ -656,6 +660,7 @@ static NativeSymbol s_natives[] = {
     { "sys_delay_us", sys_delay_us_, "(i)" }, { "sys_pulse_in", sys_pulse_in_, "(iii)i" }, { "sys_sonar_pulse", sys_sonar_pulse_, "(iii)i" },
     { "sys_ds18b20", sys_ds18b20_, "(i)i" }, { "sys_adc_mv", sys_adc_mv_, "(i)i" },
     { "sys_spi_open", sys_spi_open_, "(iiiii)i" }, { "sys_spi_xfer", sys_spi_xfer_, "(i*~*~)i" },
+    { "sys_bench", sys_bench_, "(iii*~)i" },
     { "sys_pcnt_open", sys_pcnt_open_, "(ii)i" }, { "sys_pcnt_read", sys_pcnt_read_, "(i)i" }, { "sys_pcnt_clear", sys_pcnt_clear_, "(i)i" },
 };
 

@@ -20,6 +20,8 @@ CONFIG_WAMR_ENABLE_LIBC_WASI=y
 CONFIG_ESP_ENABLE_WOLFSSH=y
 CONFIG_FREERTOS_USE_TRACE_FACILITY=y
 CONFIG_WAMR_ENABLE_REF_TYPES=y
+# Single core: required for the byte-accessible IRAM pool (CONFIG_ESP32_IRAM_AS_8BIT_ACCESSIBLE_MEMORY depends on it). That pool holds program
+# files; without it a 45 KB service program no longer fits in DRAM next to the 64 KB linear-memory slot (see esp-bench notes: dual-core was measured on paper and rejected).
 CONFIG_ESP32_IRAM_AS_8BIT_ACCESSIBLE_MEMORY=y
 CONFIG_FREERTOS_UNICORE=y
 CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y

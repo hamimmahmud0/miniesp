@@ -98,6 +98,7 @@ SYS("sys_spi_xfer")   int      sys_spi_xfer(int cs, const void *tx, int n, void 
 SYS("sys_pcnt_open")  int      sys_pcnt_open(int unit, int pin);            // unit 0/1: counts rising edges in hardware
 SYS("sys_pcnt_read")  int      sys_pcnt_read(int unit);
 SYS("sys_pcnt_clear") int      sys_pcnt_clear(int unit);
+SYS("sys_bench")      int      sys_bench(int kind, int cores, int ms, int32_t *out, int outbytes);   // ABI 6: native kernels (bench_kernels.h) per second: cores 1 = core 0, 2 = core 1, 3 = both (+8: start and return, kind -1 joins); out[2] = per core rates; returns the sum
 
 static inline int m_strcmp(const char *a, const char *b) { while (*a && *a == *b) { a++; b++; } return (unsigned char)*a - (unsigned char)*b; }
 static inline size_t m_strlen(const char *s) { size_t n = 0; while (s[n]) n++; return n; }
@@ -193,7 +194,7 @@ static inline int m_vsnprintf(char *b, int n, const char *f, va_list ap)
 static inline int m_snprintf(char *b, int n, const char *f, ...) { va_list ap; va_start(ap, f); int r = m_vsnprintf(b, n, f, ap); va_end(ap); return r; }
 
 enum { SI_UPTIME_S, SI_DRAM_FREE, SI_DRAM_TOTAL, SI_DRAM_MINFREE, SI_DRAM_LARGEST, SI_IRAM8_FREE, SI_IRAM8_TOTAL,
-       SI_EXEC_FREE, SI_EXEC_TOTAL, SI_FS_USED, SI_FS_TOTAL, SI_RSSI, SI_CPU_MHZ, SI_NTASKS, SI_COLS, SI_ROWS };
+       SI_EXEC_FREE, SI_EXEC_TOTAL, SI_FS_USED, SI_FS_TOTAL, SI_RSSI, SI_CPU_MHZ, SI_NTASKS, SI_COLS, SI_ROWS, SI_CORES, SI_CORE };   // SI_CORES (ABI 6): cores in use by FreeRTOS, SI_CORE: core this program runs on
 typedef struct { char name[12]; unsigned char state, prio; unsigned short stack, cpu10, pid; } esp_task_t;   // cpu10 = CPU% x 10
 
 /* ---- freestanding runtime: memory primitives (the compiler may emit calls to these) ---- */

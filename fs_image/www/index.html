@@ -77,7 +77,7 @@ const $=i=>document.getElementById(i), esc=UI.esc, ico=UI.ico;
 const kb=b=>b>=1048576?(b/1048576).toFixed(1)+' MB':Math.round(b/1024)+' KB';
 const dur=s=>{const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return d?d+' d '+h+' h':h?h+' h '+m+' min':m+' min '+(s%60)+' s'};
 // Known packages get a friendly card and a sidebar entry; anything else is shown by name.
-const APPS={wtms:{id:'wtms',label:'Water tank',text:'Tank level, pump control, usage charts and Home Assistant.',href:'/tank/',icon:'droplet'}};
+const APPS={'esp-bench':{id:'esp-bench',label:'Benchmark',text:'CPU, dual-core and OS benchmark results (esp-bench --save).',href:'/bench/',icon:'gauge'},wtms:{id:'wtms',label:'Water tank',text:'Tank level, pump control, usage charts and Home Assistant.',href:'/tank/',icon:'droplet'}};
 const PAGES=['machine','services','programs','apps'];
 let host='miniesp', C=null;
 

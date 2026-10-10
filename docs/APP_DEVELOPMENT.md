@@ -216,6 +216,7 @@ programs `/bin`, web root `/esp/www`, services `/etc/services`, scratch `/tmp`.
 
 | Call | Description |
 |---|---|
+| `sys_bench(kind,cores,ms,out,n)` (ABI 6) | native benchmark kernels pinned to core 0/1 (used by esp-bench); `SI_CORES`, `SI_CORE` in `sys_sysinfo` |
 | `sys_sysinfo(SI_*)` | `SI_UPTIME_S, SI_DRAM_FREE, SI_DRAM_TOTAL, SI_DRAM_MINFREE, SI_DRAM_LARGEST, SI_IRAM8_FREE, SI_IRAM8_TOTAL, SI_EXEC_FREE, SI_EXEC_TOTAL, SI_FS_USED, SI_FS_TOTAL, SI_RSSI, SI_CPU_MHZ, SI_NTASKS, SI_COLS, SI_ROWS` |
 | `sys_netinfo(what, buf, n)` | 0 hostname, 1 IP address, 2 SSID |
 | `sys_version(buf, n)` | firmware version string |

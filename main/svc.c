@@ -267,6 +267,7 @@ static void *runner(void *arg)
 static void launch(svc_t *s)           // caller holds s_mu
 {
     esp_pthread_cfg_t cfg = esp_pthread_get_default_config();
+    cfg.pin_to_core = 0;
     cfg.stack_size = 10240; cfg.thread_name = "svc"; cfg.prio = 4;
     pthread_t th;
     s->busy = true; s->state = ST_RUNNING;
@@ -337,7 +338,7 @@ void svc_init(void)
     }
     scan_units();
     for (int i = 0; i < MAX_SVC; i++) if (S[i].in_use && !S[i].native && S[i].enabled) { S[i].want_run = true; S[i].state = ST_WAITING; S[i].next_us = esp_timer_get_time() + 3000000; }
-    xTaskCreate(svcd, "svcd", 3072, NULL, 4, NULL);
+    xTaskCreatePinnedToCore(svcd, "svcd", 3072, NULL, 4, NULL, 0);
     s_up = true;
     ESP_LOGI(TAG, "service manager up");
 }

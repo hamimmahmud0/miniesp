@@ -110,6 +110,7 @@ static void *worker_task(void *arg)
 static bool start_worker(session_t *s)
 {
     esp_pthread_cfg_t cfg = esp_pthread_get_default_config();
+    cfg.pin_to_core = 0;
     cfg.stack_size = WORKER_STACK;
     cfg.thread_name = "sh";
     cfg.prio = 5;
@@ -434,5 +435,5 @@ static void server_task(void *arg)
 void ssh_server_start(void)
 {
     s_ssh_run = true;
-    if (!s_ssh_task) xTaskCreate(server_task, "sshd", 12 * 1024, NULL, 5, &s_ssh_task);
+    if (!s_ssh_task) xTaskCreatePinnedToCore(server_task, "sshd", 12 * 1024, NULL, 5, &s_ssh_task, 0);
 }
