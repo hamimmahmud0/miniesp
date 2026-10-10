@@ -7,3 +7,4 @@ AGENTS.md
 # Playwright CLI output (may contain credentials)
 .playwright-cli/
 miniesp-pkg
+build-psram/

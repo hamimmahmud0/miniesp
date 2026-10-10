@@ -477,6 +477,9 @@ static int cmd_free(sh_t *s, int c, char **v)
     sh_printf(s, "Exec:    %10u %10u %10u %8u   (IRAM: AOT code)\n", (unsigned)heap_caps_get_total_size(MALLOC_CAP_EXEC),
               (unsigned)heap_caps_get_free_size(MALLOC_CAP_EXEC), (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_EXEC),
               (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_EXEC));
+    if (heap_caps_get_total_size(MALLOC_CAP_SPIRAM))
+        sh_printf(s, "PSRAM:   %10u %10u %10u %8u   (external RAM)\n", (unsigned)heap_caps_get_total_size(MALLOC_CAP_SPIRAM), (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+                  (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
     char sl[100]; aot_slot_info(sl, sizeof sl);
     sh_printf(s, "Slots:   %s\n", sl);
     return 0;

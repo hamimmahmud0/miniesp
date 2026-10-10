@@ -194,7 +194,7 @@ static inline int m_vsnprintf(char *b, int n, const char *f, va_list ap)
 static inline int m_snprintf(char *b, int n, const char *f, ...) { va_list ap; va_start(ap, f); int r = m_vsnprintf(b, n, f, ap); va_end(ap); return r; }
 
 enum { SI_UPTIME_S, SI_DRAM_FREE, SI_DRAM_TOTAL, SI_DRAM_MINFREE, SI_DRAM_LARGEST, SI_IRAM8_FREE, SI_IRAM8_TOTAL,
-       SI_EXEC_FREE, SI_EXEC_TOTAL, SI_FS_USED, SI_FS_TOTAL, SI_RSSI, SI_CPU_MHZ, SI_NTASKS, SI_COLS, SI_ROWS, SI_CORES, SI_CORE };   // SI_CORES (ABI 6): cores in use by FreeRTOS, SI_CORE: core this program runs on
+       SI_EXEC_FREE, SI_EXEC_TOTAL, SI_FS_USED, SI_FS_TOTAL, SI_RSSI, SI_CPU_MHZ, SI_NTASKS, SI_COLS, SI_ROWS, SI_CORES, SI_CORE, SI_PSRAM_TOTAL, SI_PSRAM_FREE };   // SI_CORES (ABI 6): cores in use by FreeRTOS, SI_CORE: core this program runs on
 typedef struct { char name[12]; unsigned char state, prio; unsigned short stack, cpu10, pid; } esp_task_t;   // cpu10 = CPU% x 10
 
 /* ---- freestanding runtime: memory primitives (the compiler may emit calls to these) ---- */

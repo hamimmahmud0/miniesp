@@ -131,6 +131,8 @@ static int sys_sysinfo_(wasm_exec_env_t env, int what)
     case 11: { wifi_ap_record_t ap; return esp_wifi_sta_get_ap_info(&ap) == ESP_OK ? ap.rssi : 0; }
     case 12: return (int)ets_get_cpu_frequency();                                         // MHz
     case 13: return (int)uxTaskGetNumberOfTasks();
+    case 18: return (int)heap_caps_get_total_size(MALLOC_CAP_SPIRAM);                    // PSRAM (0 when the board has none)
+    case 19: return (int)heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
     case 16: return bench_cores();                                                        // CPU cores running FreeRTOS
     case 17: return (int)xPortGetCoreID();                                                // core this program runs on
     case 14: return P && P->t ? P->t->cols : 80;
@@ -842,15 +844,16 @@ void aot_reserve_pool(void)
     if (done) return;                                // called early from app_main and again from aot_init
     done = true;
     s_slot[0].base = heap_caps_malloc(SLOT_SIZE, MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL);
-    s_slot[1].base = heap_caps_malloc(SLOT_SIZE, MALLOC_CAP_IRAM_8BIT);
-    ESP_LOGI(TAG, "linear-memory slots: DRAM %s, IRAM %s", s_slot[0].base ? "ok" : "missing", s_slot[1].base ? "ok" : "missing");
+    // second slot (nested programs, e.g. sh running a command): PSRAM when the board has it (psram variant), else the IRAM pool (which cannot hold it)
+    s_slot[1].base = heap_caps_malloc(SLOT_SIZE, heap_caps_get_total_size(MALLOC_CAP_SPIRAM) ? MALLOC_CAP_SPIRAM : MALLOC_CAP_IRAM_8BIT);
+    ESP_LOGI(TAG, "linear-memory slots: DRAM %s, 2nd %s", s_slot[0].base ? "ok" : "missing", s_slot[1].base ? "ok" : "missing");
 }
 
 // For "free": state of the two linear-memory slots, e.g. "DRAM free, IRAM missing".
 void aot_slot_info(char *out, size_t n)
 {
-    snprintf(out, n, "DRAM %s, IRAM %s (slot %d bytes)", !s_slot[0].base ? "missing" : s_slot[0].busy ? "busy" : "free",
-             !s_slot[1].base ? "missing" : s_slot[1].busy ? "busy" : "free", SLOT_SIZE);
+    snprintf(out, n, "DRAM %s, %s %s (slot %d bytes)", !s_slot[0].base ? "missing" : s_slot[0].busy ? "busy" : "free",
+             heap_caps_get_total_size(MALLOC_CAP_SPIRAM) ? "PSRAM" : "IRAM", !s_slot[1].base ? "missing" : s_slot[1].busy ? "busy" : "free", SLOT_SIZE);
 }
 
 void *__real_os_mmap(void *hint, size_t size, int prot, int flags, os_file_handle file);

@@ -9,6 +9,7 @@ set -euo pipefail
 HOST=${1:?usage: ota.sh HOST [image.bin]}
 IMG=${2:-$(dirname "$0")/../build/esp32_unix.bin}
 USER_=${ESP_USER:-esp}
+case "$IMG" in *build-psram*) echo "refusing: the psram variant has another partition table (USB flash: tools/flash.sh)"; exit 1;; esac
 [ -f "$IMG" ] || { echo "image not found: $IMG (run idf.py build)"; exit 1; }
 PW=${ESP_PASSWORD:-$(cat "$(dirname "$0")/../.creds/esp32_ssh_password" 2>/dev/null || true)}
 ASK=$(mktemp); trap 'rm -f "$ASK"' EXIT
