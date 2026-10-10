@@ -22,7 +22,7 @@ you ──ssh──▶ sshd task ──▶ shell (pthread) ──▶ built-ins (
 ## Screenshots
 
 <p align="center">
-  <img src="assets/ssh.png" alt="neofetch over SSH on the miniesp board" width="640"><br>
+  <img src="assets/ssh.png" alt="neofetch (from miniesp-pkg) over SSH on the miniesp board" width="640"><br>
   <em>An SSH login to the board: colored prompt and <code>neofetch</code> with the miniesp chip logo.</em>
 </p>
 
@@ -196,28 +196,13 @@ service rm NAME | service reload
   Example included (disabled): `heartbeat` (blinks the LED every 5 s).
 * **Limit:** all programs share one runtime, so a service program holds it while it runs. Prefer `Interval=` services (they run briefly); a long-running daemon makes SSH programs and web requests wait for their turn.
 
-`neofetch` prints a system summary next to the miniesp chip logo (firmware, uptime, CPU, memory pools, storage, network, clock); colors only on a terminal, and the logo is dropped on narrow terminals.
+## Unofficial packages
 
-## `wtms`: water tank management (package)
+`nmap`, `curl`, `neofetch` and the `wtms` water tank manager are not part of the OS: they live in the separate [miniesp-pkg](https://github.com/hamimmahmud0/miniesp-pkg) repo and are installed with `pkg install NAME` (the mother journal links to its journal). See that repo for their documentation.
 
-A smart water tank manager (HC-SR04 level sensor, MQTT pump relay, Home Assistant discovery, web dashboard with login and settings). It is a **bundle package** (several files), installed with the package manager:
-```
-pkg update
-pkg install wtms        # program + dashboard pages + CGI copy, all verified (SHA-256) and put in place
-wtms setup              # interactive: web server port, dashboard password, MQTT broker/port/user, pump topic, tank size, pins, limits, time zone
-wtms setup --headless mqtt_host=192.168.0.50 mqtt_pass=SECRET web_port=80 length=100 width=100 height=100 full_cm=15 [--start]
-```
-`wtms setup` validates everything first, saves the configuration (NVS keys `tank.*`, so an older install's settings are picked up), sets the MQTT broker, optionally moves the board's **web server to another port** (kv key `www.port`, applied with `service restart www`; port 22 is refused), creates the `wtms` service (every 5 s), checks the sensor and only starts pump control if you say so (`--start` / `start=1` in headless mode). It never starts the service by default. Headless keys: `mqtt_host mqtt_port mqtt_user mqtt_pass web_port web_pw tz start shape length width diameter height litres full_cm empty_cm` plus every `wtms config` key (`name pump ha trig echo temp on_pct off_pct max_run ...`).
-CLI: `wtms status | read | config [k=v ...] | cmd reset|force_on[:min]|force_off[:min]|release | passwd NEW | discover`; dashboard `http://<board>[:port]/tank/`. `wtms` alone only prints usage. The package installs two builds of the same program: `wtms` (with `setup`, 58 KB) for you, and `wtmsd` (without `setup`, 40 KB) which the service and the web page (`/cgi-bin/wtms`) use, because a 58 KB program can fail to load while an SSH session has fragmented RAM (the dashboard login then answered "bad reply"). `pkg remove wtms` deletes the files and the service but keeps the settings in NVS and the data (`/www/tank/history.csv`). Details: `packages/wtms/README.md`.
+## `ping`, `nano` and `touch` (preinstalled)
 
-### Bundle packages (for package authors)
-A bundle is described by `packages/NAME/bundle.spec`; `tools/mkbundle.py packages/NAME` builds the program, copies the files to `pkgs/NAME/`, writes `pkgs/NAME/MANIFEST` (what `pkg install` downloads first) and the journal line `bundle NAME VERSION MANIFEST_URL sha256=... size=... abi=N`. Manifest lines: `dir PATH`, `file PATH URL sha256=.. size=..`, `copy SRC DEST`, `service NAME` (stopped and removed on `pkg remove`), `note TEXT`; paths must be under `/esp/`, `/www/`, `/etc/` or `/var/`. The whole manifest is validated before anything is written; files already present with the right hash are skipped, so `pkg install NAME` again (or `pkg fix`) repairs a damaged install.
-
-## `ping` and `nmap` (packages)
-
-`pkg install ping` / `pkg install nmap`. `ping [-c N] [-i SEC] [-W MS] [-s SIZE] HOST` sends real ICMP echo requests (new syscall `sys_ping`, **ABI 5**, so the firmware must be updated first) and prints each reply, the loss and min/avg/max round-trip time; Ctrl-C stops it with the summary. `nmap [-p PORTS] [-F] [-T MS] [-sn] [-v] TARGET...` is a small TCP connect scanner for a host name, an address, `a.b.c.1-50` or a CIDR block (/22 or smaller); "closed" means refused, "filtered" means no answer in the timeout. Only scan machines you own or may test.
-
-## `nano` and `touch`
+`ping [-c N] [-i SEC] [-W MS] [-s SIZE] HOST` sends real ICMP echo requests (new syscall `sys_ping`, **ABI 5**, so the firmware must be updated first) and prints each reply, the loss and min/avg/max round-trip time; Ctrl-C stops it with the summary.
 
 `nano FILE` (`programs/nano.c`, 18 KB) is a small nano-style editor; run it from a real terminal (`ssh -t`, or a normal interactive login). The whole file is held in RAM, so files up to ~39 KB. Keys: arrows, Home/End, PgUp/PgDn, Delete, Backspace, Tab, Enter; `^O` write out (asks for the name), `^X` exit (asks to save), `^K` cut line, `^U` paste, `^W` search (wraps), `^A`/`^E` line start/end, `^V`/`^Y` page down/up, `^C` show the cursor position, `^L` redraw. A lost connection leaves without saving. `touch FILE...` creates empty files (`-c` creates nothing; the filesystem has no timestamps).
 

@@ -40,12 +40,16 @@ pkg install mytool
 ```
 If you replace a file at the same URL, regenerate its journal line (the hash and size must match, otherwise `pkg install` refuses it).
 
+## Official vs unofficial
+OS programs (`nano`, `touch`, `ping`, `pkg`, `sh`...) are built into `fs_image/bin` and preinstalled. Non-OS packages live in the separate
+`miniesp-pkg` repo, which has its own journal (`journals/pkg.journal`) linked from `journals/main.journal`; use that repo's `programs/build.sh` and `tools/`.
+
 ## Your own journal
 A journal can link to other journals with `journal URL` lines, and the board reads `/etc/pkg/sources.list` (one URL per line).
 Host a journal and its files anywhere that serves plain HTTPS files, then add its URL to `sources.list` on the board.
 The first journal that lists a name wins.
 
 ## Several files in one package (a bundle)
-For a program plus web pages, config or a service, write `packages/NAME/bundle.spec` (see `packages/wtms/bundle.spec`) and run
+For a program plus web pages, config or a service, write `packages/NAME/bundle.spec` (see `packages/wtms/bundle.spec` in the miniesp-pkg repo) and run
 `tools/mkbundle.py packages/NAME`. It builds the program, hashes every file, writes `pkgs/NAME/MANIFEST` and the `bundle` journal line.
 `pkg install NAME` fetches the manifest, validates it, then downloads and verifies each file. Paths must be under `/esp/`, `/www/`, `/etc/` or `/var/`.

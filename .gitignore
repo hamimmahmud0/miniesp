@@ -4,3 +4,6 @@ sdkconfig
 sdkconfig.old
 .creds/
 AGENTS.md
+# Playwright CLI output (may contain credentials)
+.playwright-cli/
+miniesp-pkg
