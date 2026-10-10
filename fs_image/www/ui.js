@@ -60,7 +60,8 @@
       { id: 'g-apps', label: 'Apps', icon: 'apps', kids: [{ id: 'apps', label: 'All apps', href: '/#apps' }].concat(apps().map(a => ({ id: 'app-' + a.id, label: a.label, href: a.href, pages: window.UI_APP && UI_APP.id === a.id ? UI_APP.pages : null }))) }
     ];
   }
-  const host = () => (window.UI_HOST || location.hostname || 'miniesp').replace(/\.local$/, '');
+  const host = () => (window.UI_HOST || LS.get('ui-host', '') || location.hostname || 'miniesp').replace(/\.local$/, '');   // the console stores the real name
+  const isIp = h => /^[0-9.]+$|:/.test(h);
   function link(k, act) { return '<a href="' + esc(k.href) + '"' + (k.id === act ? ' aria-current="page"' : '') + '>' + esc(k.label) + '</a>' }
   function navHtml(act) {
     return model().map(g => {
@@ -76,7 +77,7 @@
       '<nav class="nav" aria-label="Main">' + navHtml(act) + '</nav>' +
       '<div class="side-foot nav"><a href="https://github.com/hamimmahmud0/miniesp#readme" target="_blank" rel="noopener">' + ico('book') + '<span>Documentation</span></a>' +
       '<a href="https://github.com/hamimmahmud0/miniesp/issues" target="_blank" rel="noopener">' + ico('help') + '<span>Help</span></a></div>' +
-      '<button type="button" class="who nav-who" id="ui-who" aria-haspopup="menu" style="border:0;border-top:1px solid var(--border);background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;width:100%"><span class="av">' + ico('user') + '</span><div><b>esp</b><span>' + esc(host()) + '.local</span></div></button>';
+      '<button type="button" class="who nav-who" id="ui-who" aria-haspopup="menu" style="border:0;border-top:1px solid var(--border);background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;width:100%"><span class="av">' + ico('user') + '</span><div><b>esp</b><span>' + esc(host()) + (isIp(host()) ? '' : '.local') + '</span></div></button>';
     side.querySelectorAll('[data-g]').forEach(b => b.onclick = () => { const o = b.getAttribute('aria-expanded') !== 'true'; b.setAttribute('aria-expanded', o); b.nextElementSibling.hidden = !o; LS.set('ui-nav-' + b.dataset.g, o ? '1' : '0') });
     document.getElementById('ui-who').onclick = e => { e.stopPropagation(); whoMenu(e.currentTarget) };
     const tb = document.getElementById('ui-topname'); if (tb) tb.textContent = host();
@@ -124,7 +125,7 @@
   window.UI = {
     ico, esc, copy, toast, ls: LS.get, lset: LS.set,
     setActive(id) { document.body.dataset.nav = id; render(); drawer(false) },
-    setHost(name) { window.UI_HOST = name; render() },
+    setHost(name) { window.UI_HOST = name; LS.set('ui-host', name); render() },
     setApps(list) { LS.set('ui-apps', JSON.stringify(list)); render() },   // [{id,label,href,icon}] - the console stores the installed apps
     logout: null
   };
