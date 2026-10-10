@@ -3,7 +3,8 @@
 # programs and files on the board's LittleFS keep their old versions, or are gone if the filesystem was reformatted).
 #   tools/sync.sh HOST
 # - system files (/bin/*.aot, the sysinfo CGI) are copied when missing or different (compared by SHA-256);
-# - config/user files (motd, pkg sources, service units, ~/.profile, ~/.shrc, the homepage) are copied only when missing,
+# - the web console and its design system (/www/index.html, style.css, ui.js) are system files too;
+# - config/user files (motd, pkg sources, service units, ~/.profile, ~/.shrc) are copied only when missing,
 #   so your edits are never overwritten;
 # - then "pkg fix" reinstalls recorded packages that are missing.
 set -uo pipefail
@@ -39,7 +40,7 @@ for f in "$FS"/www/cgi-bin/*.aot; do [ -e "$f" ] && sync_if_different "$f" "/www
 put_if_missing "$FS/etc/motd" /etc/motd
 put_if_missing "$FS/etc/pkg/sources.list" /etc/pkg/sources.list
 for f in "$FS"/etc/services/*.service; do [ -e "$f" ] && put_if_missing "$f" "/etc/services/$(basename "$f")"; done
-put_if_missing "$FS/www/index.html" /www/index.html
+for f in index.html style.css ui.js; do sync_if_different "$FS/www/$f" "/www/$f"; done      # web console + shared design system (docs/UI_GUIDE.md)
 for f in .profile .shrc; do [ -e "$FS/esp/$f" ] && put_if_missing "$FS/esp/$f" "/esp/$f"; done
 run "service reload" >/dev/null
 echo "pkg fix:"; run "pkg fix"

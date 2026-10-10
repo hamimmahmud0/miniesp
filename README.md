@@ -4,7 +4,7 @@
 
 
 > New to this repo (human or AI agent)? `llms.txt` has the full flashing, toolchain and AOT-programming guide.
-> Writing an application (`.aot`)? Start with the tutorial: [`docs/APP_DEVELOPMENT.md`](docs/APP_DEVELOPMENT.md).
+> Writing an application (`.aot`)? Start with the tutorial: [`docs/APP_DEVELOPMENT.md`](docs/APP_DEVELOPMENT.md). Building a web page? Follow [`docs/UI_GUIDE.md`](docs/UI_GUIDE.md) (`/style.css` + `/ui.js`).
 A tiny unix-like system for the **ESP32**, built on **ESP-IDF** (FreeRTOS):
 
 - connects to a predefined WiFi network, or falls back to its own **access point**

@@ -288,6 +288,7 @@ Natives run on the program's thread; they must not block for long without a way 
 ## 10. Verification recipes (use these after any change)
 
 - Quick health: `ssh esp@HOST "uname"` (rc 0), `ssh esp@HOST free`, `curl -s -o /dev/null -w '%{http_code}' http://HOST/` (expect 200).
+- Web pages: follow docs/UI_GUIDE.md (shared /style.css + /ui.js design system; admin-console look, sidebar, dark by default).
 - Soak: run 30-50 mixed ssh commands (`uname`, `hello`, `echo a | wc`, `ls -la ~`, `sh -c 'echo $((6*7))'`) with ~1 s gaps and count empty outputs (expect 0).
 - Transfers: upload a 200 KB random file with `put`, compare `sha256sum` on host and device, download with `cat` and `cmp`; repeat 5x.
 - Terminal UIs without a terminal: spawn `ssh -tt` under a python `pty` with a window size set via `TIOCSWINSZ`, send keys, capture bytes, render with `pyte`.
