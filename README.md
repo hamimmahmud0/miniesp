@@ -4,6 +4,7 @@
 
 
 > New to this repo (human or AI agent)? `llms.txt` has the full flashing, toolchain and AOT-programming guide.
+> Writing an application (`.aot`)? Start with the tutorial: [`docs/APP_DEVELOPMENT.md`](docs/APP_DEVELOPMENT.md).
 A tiny unix-like system for the **ESP32**, built on **ESP-IDF** (FreeRTOS):
 
 - connects to a predefined WiFi network, or falls back to its own **access point**
@@ -317,7 +318,7 @@ tools/ota.sh     network firmware update
 ```
 
 ## Contributing
-Contributions and co-maintainers are welcome: see `CONTRIBUTING.md` (including the port checklist), `MAINTAINERS.md`, `BOARDS.md` (pins and tested boards) and `docs/PACKAGES.md` (write and publish a package in about 10 minutes). Good first issues are labelled on GitHub.
+Contributions and co-maintainers are welcome: see `CONTRIBUTING.md` (including the port checklist), `MAINTAINERS.md`, `BOARDS.md` (pins and tested boards) `docs/APP_DEVELOPMENT.md` (application development tutorial) and `docs/PACKAGES.md` (write and publish a package in about 10 minutes). Good first issues are labelled on GitHub.
 
 ## Known limits
 - **One SSH session at a time.** A second client waits until the first disconnects (RAM is the constraint).
