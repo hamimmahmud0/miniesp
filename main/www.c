@@ -15,6 +15,10 @@
 #include "esp_log.h"
 #include "esp_pthread.h"
 #include "fs.h"
+#include "hdrfilter.h"
+#include <errno.h>
+#include <unistd.h>
+#include <sys/socket.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "io.h"
@@ -251,6 +255,43 @@ int www_port(void)                                   // kv "www.port" = 1..65535
     return p >= 1 && p <= 65535 && p != 22 ? p : 80;
 }
 
+// Strip Cookie/Referer header lines from every connection (see hdrfilter.h): a big cookie jar must not stop a page loading.
+#define HF_SOCKS 4                      // >= cfg.max_open_sockets; lwIP socket numbers are offset, so slots are looked up by fd
+static struct { int fd; struct hf f; } s_hf[HF_SOCKS];
+
+static struct hf *hf_slot(int fd)
+{
+    for (int i = 0; i < HF_SOCKS; i++) if (s_hf[i].fd == fd) return &s_hf[i].f;
+    return NULL;
+}
+
+static int hf_recv(httpd_handle_t hd, int fd, char *buf, size_t len, int flags)
+{
+    struct hf *f = hf_slot(fd);
+    if (!f || len <= HF_HOLD) { int r = recv(fd, buf, len, flags); return r < 0 ? (errno == EAGAIN || errno == EWOULDBLOCK ? HTTPD_SOCK_ERR_TIMEOUT : HTTPD_SOCK_ERR_FAIL) : r; }
+    for (;;) {
+        int r = recv(fd, buf + HF_HOLD, len - HF_HOLD, flags);
+        if (r < 0) return errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR ? HTTPD_SOCK_ERR_TIMEOUT : errno == EINVAL || errno == EBADF ? HTTPD_SOCK_ERR_INVALID : HTTPD_SOCK_ERR_FAIL;
+        if (r == 0) return 0;
+        size_t o = hf_run(f, buf, HF_HOLD, (size_t)r);
+        if (o > 0) return (int)o;       // everything was dropped or held back: read on
+    }
+}
+
+static esp_err_t hf_open(httpd_handle_t hd, int fd)
+{
+    struct hf *f = hf_slot(fd);
+    for (int i = 0; !f && i < HF_SOCKS; i++) if (s_hf[i].fd <= 0) { s_hf[i].fd = fd; f = &s_hf[i].f; }
+    if (f) { hf_init(f); httpd_sess_set_recv_override(hd, fd, hf_recv); }
+    return ESP_OK;
+}
+
+static void hf_close(httpd_handle_t hd, int fd)
+{
+    for (int i = 0; i < HF_SOCKS; i++) if (s_hf[i].fd == fd) s_hf[i].fd = 0;
+    close(fd);
+}
+
 void www_stop(void)
 {
     if (s_srv) { httpd_stop(s_srv); s_srv = NULL; ESP_LOGI(TAG, "web server stopped"); }
@@ -266,6 +307,8 @@ void www_start(void)
     cfg.max_open_sockets = 3;
     cfg.stack_size = 5120;
     cfg.lru_purge_enable = true;
+    cfg.open_fn = hf_open;
+    cfg.close_fn = hf_close;
     cfg.recv_wait_timeout = 5;
     cfg.send_wait_timeout = 5;
     if (httpd_start(&s_srv, &cfg) != ESP_OK) { ESP_LOGE(TAG, "httpd_start failed"); return; }
