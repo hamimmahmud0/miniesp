@@ -271,8 +271,11 @@ static void launch(svc_t *s)           // caller holds s_mu
     pthread_t th;
     s->busy = true; s->state = ST_RUNNING;
     if (esp_pthread_set_cfg(&cfg) != ESP_OK || pthread_create(&th, NULL, runner, s) != 0) {
-        s->busy = false; s->state = ST_FAILED; s->want_run = false;
-        log_line(s, "cannot create a thread (out of memory)");
+        s->busy = false;
+        if (s->last_rc != 126) log_line(s, "cannot create a thread (out of memory)%s", s->interval > 0 || s->restart_policy ? ": will retry" : "");
+        s->last_rc = 126;                                                           // log the first failure of a streak only
+        if (s->interval > 0 || s->restart_policy) { s->state = ST_WAITING; s->next_us = esp_timer_get_time() + 5000000; }   // a periodic service must not stay dead after one OOM
+        else { s->state = ST_FAILED; s->want_run = false; }
         return;
     }
     pthread_detach(th);
