@@ -7,6 +7,7 @@
 #include "wtms_core.h"
 #include <stdint.h>
 #include "sonar.h"
+#include "klog.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -1049,10 +1050,11 @@ static void app_task(void *arg)
         sonar_service();
         wtms_cycle();
         s_cycles++;
+        if (s_cycles <= 12) { ESP_LOGW("wtms", "cycle %u done, stack free %u", (unsigned)s_cycles, (unsigned)uxTaskGetStackHighWaterMark(NULL)); klog_flush_now(); }   // first cycles are traced to flash at once: they show how far a crash got
         vTaskDelay(pdMS_TO_TICKS(5000));
     }
 }
 
-void wtms_start(void) { s_mu = xSemaphoreCreateMutex(); xTaskCreatePinnedToCore(app_task, "wtms", 8192, NULL, 5, NULL, 1); }
+void wtms_start(void) { s_mu = xSemaphoreCreateMutex(); xTaskCreatePinnedToCore(app_task, "wtms", 12288, NULL, 5, NULL, 1); }
 
 int wtms_token_ok(const char *t) { int r; wtms_lock(); r = tok_check(t); wtms_unlock(); return r; }

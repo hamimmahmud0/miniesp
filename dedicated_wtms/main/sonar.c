@@ -1,6 +1,8 @@
 #include "sonar.h"
 #include <stdint.h>
 #include "driver/gpio.h"
+#include "hal/gpio_ll.h"
+#include "soc/gpio_struct.h"
 #include "esp_log.h"
 #include "esp_rom_sys.h"
 #include "esp_timer.h"
@@ -14,10 +16,11 @@ static volatile int s_have_rise, s_have_fall;
 static int s_trig = -1, s_echo = -1, s_ok;                 // configured pins, interrupt ready
 static volatile int s_req_trig = -1, s_req_echo = -1;      // requested by another core
 
+// IRAM only: gpio_get_level() lives in flash, which is unreadable while the other core writes the filesystem (that crashed the first build)
 static void IRAM_ATTR echo_isr(void *arg)
 {
     int64_t t = esp_timer_get_time();
-    if (gpio_get_level((gpio_num_t)(intptr_t)arg)) { if (!s_have_rise) { s_rise = t; s_have_rise = 1; } }
+    if (gpio_ll_get_level(&GPIO, (uint32_t)(intptr_t)arg)) { if (!s_have_rise) { s_rise = t; s_have_rise = 1; } }
     else if (s_have_rise && !s_have_fall) { s_fall = t; s_have_fall = 1; }
 }
 

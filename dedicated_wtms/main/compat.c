@@ -129,9 +129,9 @@ static int volatile_line(const char *l)
     for (unsigned i = 0; i < sizeof v / sizeof *v; i++) if (!strncmp(l, v[i], strlen(v[i]))) return 1;
     return 0;
 }
-static int important_differs(const char *a, const char *b)
+static int important_differs(const char *a, const char *b)       // always called with the wtms lock held: static buffers are safe (and keep the stack small)
 {
-    char ia[800], ib[800]; int na = 0, nb = 0;
+    static char ia[800], ib[800]; int na = 0, nb = 0;
     for (const char *p = a; *p;) { const char *e = strchr(p, '\n'); int l = e ? (int)(e - p) + 1 : (int)strlen(p); if (!volatile_line(p) && na + l < (int)sizeof ia) { memcpy(ia + na, p, l); na += l; } p += l; }
     for (const char *p = b; *p;) { const char *e = strchr(p, '\n'); int l = e ? (int)(e - p) + 1 : (int)strlen(p); if (!volatile_line(p) && nb + l < (int)sizeof ib) { memcpy(ib + nb, p, l); nb += l; } p += l; }
     return na != nb || memcmp(ia, ib, na);
@@ -139,8 +139,8 @@ static int important_differs(const char *a, const char *b)
 int sys_kv_set(const char *key, const void *buf, int n)
 {
     if (!strcmp(key, "tank.st") && n < 790) {
-        static char last[800]; static int64_t last_us;
-        char cur[800]; memcpy(cur, buf, n); cur[n] = 0;
+        static char last[800], cur[800]; static int64_t last_us;
+        memcpy(cur, buf, n); cur[n] = 0;
         int64_t now = esp_timer_get_time();
         if (last_us && !important_differs(cur, last) && now - last_us < 120 * 1000000LL) return 0;
         memcpy(last, cur, n + 1); last_us = now;

@@ -230,3 +230,5 @@ int klog_live_read(uint32_t *cursor, char *dst, int max)
     return n;
 }
 uint32_t klog_live_end(void) { return s_live_total; }
+
+void klog_flush_now(void) { if (s_fmu) flush(); }
