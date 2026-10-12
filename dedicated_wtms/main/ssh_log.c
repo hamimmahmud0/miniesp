@@ -23,7 +23,8 @@ static const char *TAG = "ssh";
 static WOLFSSH_CTX *s_ctx;
 static char s_peer[20] = "?";                  // address of the client of the current session
 
-typedef struct { WOLFSSH *ssh; int fd; volatile bool want_shell, want_exec; char cmd[40]; int hard_errs; } sess_t;
+typedef struct { WOLFSSH *ssh; int fd; volatile bool want_shell, want_exec; char cmd[40]; int hard_errs; int odd; char why[80]; char line[340]; int ll; bool color; } sess_t;
+static void ended(sess_t *s, const char *why, int code) { if (!s->why[0]) snprintf(s->why, sizeof s->why, "%s%s%s", why, code ? " " : "", code ? wolfSSH_ErrorToName(code) : ""); }
 
 extern const uint8_t hostkey_start[] asm("_binary_hostkey_der_start");
 extern const uint8_t hostkey_end[] asm("_binary_hostkey_der_end");
@@ -60,9 +61,11 @@ static int service(sess_t *s)
     word32 ch = 0;
     int r = wolfSSH_worker(s->ssh, &ch);
     int e = r < 0 ? r : wolfSSH_get_error(s->ssh);
-    if (r == WS_SUCCESS || e == WS_WANT_READ || e == WS_WINDOW_FULL || e == WS_REKEYING || e == WS_EXTDATA || e == WS_WANT_WRITE || e == WS_CHAN_RXD) { s->hard_errs = 0; return 0; }
-    if (e == WS_SOCKET_ERROR_E || e == WS_EOF || e == WS_CHANNEL_CLOSED) return -1;
+    if (r == WS_SUCCESS || e == WS_WANT_READ || e == WS_WINDOW_FULL || e == WS_REKEYING || e == WS_EXTDATA || e == WS_WANT_WRITE || e == WS_CHAN_RXD) { s->hard_errs = 0; s->odd = 0; return 0; }
+    if (e == WS_SOCKET_ERROR_E || e == WS_EOF || e == WS_CHANNEL_CLOSED) { ended(s, "client closed the connection:", e); return -1; }
     if (e == WS_FATAL_ERROR && ++s->hard_errs <= 200) { vTaskDelay(pdMS_TO_TICKS(2)); return 0; }
+    if (++s->odd <= 50) { vTaskDelay(pdMS_TO_TICKS(5)); return 0; }                 // an unexpected status code: tolerated for a while, it is usually transient
+    ended(s, "SSH error:", e);
     return -1;
 }
 
@@ -72,9 +75,10 @@ static int send_all(sess_t *s, const char *p, int n)
     while (n > 0) {
         int w = wolfSSH_stream_send(s->ssh, (byte *)p, n);
         if (w > 0) { p += w; n -= w; t0 = xTaskGetTickCount(); continue; }
-        if (xTaskGetTickCount() - t0 > pdMS_TO_TICKS(20000)) return -1;
+        if (xTaskGetTickCount() - t0 > pdMS_TO_TICKS(20000)) { ended(s, "client stopped accepting data for 20 s", 0); return -1; }
         int e = wolfSSH_get_error(s->ssh);
         if (e == WS_WANT_WRITE || e == WS_WANT_READ || e == WS_WINDOW_FULL || e == WS_REKEYING || e == WS_CHAN_RXD) { vTaskDelay(pdMS_TO_TICKS(5)); if (service(s) < 0) return -1; continue; }
+        ended(s, "send error:", e);
         return -1;
     }
     return 0;
@@ -92,18 +96,77 @@ static int send_text(sess_t *s, const char *p, int n)
     return o ? send_all(s, b, o) : 0;
 }
 
-static void tail_out(const char *b, int n, void *ctx) { sess_t *s = ctx; if (s->fd >= 0) { if (send_text(s, b, n) < 0) s->fd = -1; } }
+// ---- colours (terminal sessions only): the level colours the "E (123)" part and, for errors / warnings, the message; every task / tag has its own colour ----
+static const char *lvl_color(char c)
+{
+    switch (c) { case 'E': return "\x1b[1;31m"; case 'W': return "\x1b[33m"; case 'I': return "\x1b[32m"; case 'D': return "\x1b[36m"; default: return "\x1b[90m"; }
+}
+static const char *tag_color(const char *t, int n)
+{
+    static const char *const pal[] = { "\x1b[96m", "\x1b[95m", "\x1b[94m", "\x1b[36m", "\x1b[35m", "\x1b[34m", "\x1b[93m", "\x1b[92m" };
+    unsigned h = 0; for (int i = 0; i < n; i++) h = h * 31 + (unsigned char)t[i];
+    return pal[h % (sizeof pal / sizeof *pal)];
+}
+// "[2026-10-12 11:20:59] PM I (220280) api: text"  ->  dim stamp, level colour, tag colour, message (red / yellow for E / W)
+static int colorize(const char *l, int n, char *out, int cap)
+{
+    int i = 0, o = 0;
+    if (n > 0 && l[0] == '[') { int j = 0; while (j < n && l[j] != ']') j++; if (j + 4 < n && l[j + 1] == ' ' && (l[j + 2] == 'A' || l[j + 2] == 'P') && l[j + 3] == 'M') i = j + 5; }
+    if (i + 4 >= n || !strchr("EWIDV", l[i]) || l[i + 1] != ' ' || l[i + 2] != '(') return -1;
+    int p = i + 3; while (p < n && l[p] != ')') p++;
+    int t0 = p + 2, t1 = t0; while (t1 < n && l[t1] != ':' && l[t1] != ' ' && t1 - t0 < 20) t1++;
+    if (p + 2 >= n || l[t1] != ':') return -1;
+    const char *lc = lvl_color(l[i]);
+    o += snprintf(out + o, cap - o, "\x1b[90m%.*s\x1b[0m%s%.*s\x1b[0m %s%.*s:\x1b[0m", i, l, lc, p + 1 - i, l + i, tag_color(l + t0, t1 - t0), t1 - t0, l + t0);
+    int ml = n - (t1 + 1);
+    const char *mc = l[i] == 'E' ? "\x1b[91m" : l[i] == 'W' ? "\x1b[33m" : "";
+    o += snprintf(out + o, cap - o, "%s%.*s%s", mc, ml, l + t1 + 1, mc[0] ? "\x1b[0m" : "");
+    return o < cap ? o : cap - 1;
+}
+static int send_line(sess_t *s, const char *l, int n)            // one line without its LF
+{
+    char out[640];
+    int o = s->color ? colorize(l, n, out, sizeof out - 2) : -1;
+    if (o < 0) { if (n > (int)sizeof out - 2) n = sizeof out - 2; memcpy(out, l, n); o = n; }
+    out[o++] = '\n';
+    return send_text(s, out, o);
+}
+// log text in arbitrary pieces -> whole lines (a partial line waits for its end)
+static int send_log(sess_t *s, const char *p, int n)
+{
+    for (int i = 0; i < n; i++) {
+        if (p[i] == '\n') { if (send_line(s, s->line, s->ll) < 0) return -1; s->ll = 0; }
+        else if (s->ll < (int)sizeof s->line - 1) s->line[s->ll++] = p[i];
+    }
+    return 0;
+}
 
-// returns 1 when the user asked to quit (q, Ctrl-C, Ctrl-D)
+static void tail_out(const char *b, int n, void *ctx) { sess_t *s = ctx; if (s->fd >= 0) { if (send_log(s, b, n) < 0) s->fd = -1; } }
+
+// has the TCP peer gone away? (peeks at the socket)
+static bool peer_gone(int fd)
+{
+    char c;
+    int r = recv(fd, &c, 1, MSG_PEEK | MSG_DONTWAIT);
+    if (r == 0) return true;
+    if (r < 0 && errno != EWOULDBLOCK && errno != EAGAIN && errno != EINTR) return true;
+    return false;
+}
+
+// returns 1 when the session should end: the user pressed q / Ctrl-C / Ctrl-D, or the client is gone
 static int read_keys(sess_t *s)
 {
     byte b[32];
     int r = wolfSSH_stream_read(s->ssh, b, sizeof b);
-    if (r > 0) { for (int i = 0; i < r; i++) if (b[i] == 'q' || b[i] == 'Q' || b[i] == 3 || b[i] == 4) return 1; return 0; }
+    if (r > 0) { s->odd = 0; for (int i = 0; i < r; i++) if (b[i] == 'q' || b[i] == 'Q' || b[i] == 3 || b[i] == 4) { ended(s, "user pressed", 0); snprintf(s->why, sizeof s->why, "user pressed %s", b[i] == 3 ? "Ctrl-C" : b[i] == 4 ? "Ctrl-D" : "q"); return 1; } return 0; }
     int e = r < 0 ? r : wolfSSH_get_error(s->ssh);
-    if (e == WS_WANT_READ || e == WS_CHAN_RXD || e == WS_EXTDATA || e == WS_WINDOW_FULL || e == WS_REKEYING || e == WS_SUCCESS) return 0;
+    if (e == WS_EOF || e == WS_CHANNEL_CLOSED || e == WS_SOCKET_ERROR_E) { ended(s, "client closed the connection:", e); return 1; }
+    if (peer_gone(s->fd)) { ended(s, "TCP connection lost", 0); return 1; }
+    if (e == WS_WANT_READ || e == WS_CHAN_RXD || e == WS_EXTDATA || e == WS_WINDOW_FULL || e == WS_REKEYING || e == WS_SUCCESS) { s->odd = 0; return 0; }
     if (e == WS_FATAL_ERROR && ++s->hard_errs <= 200) return 0;
-    return 1;                                            // EOF / closed / error
+    if (++s->odd <= 200) return 0;                                       // unexpected but not fatal: keep the view alive
+    ended(s, "SSH error:", e);
+    return 1;
 }
 
 static void run_session(int fd)
@@ -119,7 +182,7 @@ static void run_session(int fd)
     wolfSSH_set_fd(s->ssh, fd);
     wolfSSH_SetChannelReqCtx(s->ssh, s);
     fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
-    int one = 1, ka = 1, idle = 20, intvl = 5, cnt = 3;
+    int one = 1, ka = 1, idle = 30, intvl = 10, cnt = 9;           // dead-client detection after ~2 min: Wi-Fi at -85 dBm loses probes, a short limit dropped good sessions
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
     setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &ka, sizeof ka);
     setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof idle);
@@ -145,6 +208,7 @@ static void run_session(int fd)
     }
     {
         int n = 40, follow = 1;
+        s->color = s->want_shell;                           // an interactive terminal gets colours, `ssh host log N` (pipes, files) stays plain
         if (s->want_exec) {
             follow = 0; n = 100;
             if (!strncmp(s->cmd, "log", 3) || !strncmp(s->cmd, "tail", 4)) { const char *a = strchr(s->cmd, ' '); if (a && atoi(a) > 0) n = atoi(a); }
@@ -158,7 +222,7 @@ static void run_session(int fd)
         while (follow) {
             char b[200];
             int k = klog_live_read(&cur, b, sizeof b);
-            if (k > 0) { if (send_text(s, b, k) < 0) break; continue; }
+            if (k > 0) { if (send_log(s, b, k) < 0) break; continue; }
             if (wait_fd(fd, false, 200)) { if (service(s) < 0) break; }
             if (read_keys(s)) break;
         }
@@ -174,10 +238,11 @@ out:
     shutdown(fd, SHUT_WR);
     for (int i = 0; i < 25; i++) { char j[64]; int n = recv(fd, j, sizeof j, MSG_DONTWAIT); if (n == 0) break; if (n < 0 && errno != EWOULDBLOCK && errno != EAGAIN) break; vTaskDelay(pdMS_TO_TICKS(20)); }
     bool was_exec = s->want_exec;
+    char why[80]; strlcpy(why, s->why, sizeof why);
     wolfSSH_free(s->ssh);
     close(fd);
     free(s);
-    ESP_LOGI(TAG, "session from %s closed after %u s (%s)", s_peer, (unsigned)((xTaskGetTickCount() - t_start) / configTICK_RATE_HZ), was_exec ? "log command" : "live view");
+    ESP_LOGI(TAG, "session from %s closed after %u s (%s): %s", s_peer, (unsigned)((xTaskGetTickCount() - t_start) / configTICK_RATE_HZ), was_exec ? "log command" : "live view", why[0] ? why : "ended normally");
 }
 
 static void server_task(void *arg)

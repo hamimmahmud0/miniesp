@@ -55,12 +55,12 @@ static int klog_vprintf(const char *fmt, va_list ap)
     if (n < 0) n = 0;
     if (n >= (int)sizeof line) { n = sizeof line - 1; line[n - 1] = '\n'; }
     line[n] = 0;
-    // wall-clock stamp (local time, 12-hour with AM/PM) once the clock is NTP-synced; the ESP prefix "I (12345) tag:" keeps the uptime
+    // wall-clock stamp "[2026-10-12 11:20:59] PM" (local time, 12-hour, AM/PM after the bracket) once the clock is NTP-synced; the ESP prefix "I (12345) tag:" is the uptime in ms
     char stamp[32]; int sl = 0;
     if (time_state() == 2) {
         time_t tt = time(NULL); struct tm tm; localtime_r(&tt, &tm);
         int h12 = tm.tm_hour % 12; if (!h12) h12 = 12;
-        sl = snprintf(stamp, sizeof stamp, "%04d-%02d-%02d %02d:%02d:%02d %s ", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, h12, tm.tm_min, tm.tm_sec, tm.tm_hour < 12 ? "AM" : "PM");
+        sl = snprintf(stamp, sizeof stamp, "[%04d-%02d-%02d %02d:%02d:%02d] %s ", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, h12, tm.tm_min, tm.tm_sec, tm.tm_hour < 12 ? "AM" : "PM");
     }
     if (sl) fwrite(stamp, 1, sl, stdout);
     fwrite(line, 1, n, stdout);                         // the console (UART)
