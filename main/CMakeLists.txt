@@ -1,5 +1,5 @@
 file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/generated")
-set(MAIN_SRCS "main.c" "io.c" "auth.c" "fs.c" "wifi_mgr.c" "term.c" "tty_vfs.c" "aot_run.c" "shell.c" "ssh_server.c" "drivers.c" "www.c" "svc.c" "wd.c" "ota.c" "timesync.c" "kv.c" "mqtt.c" "httpget.c")
+set(MAIN_SRCS "main.c" "io.c" "auth.c" "fs.c" "wifi_mgr.c" "term.c" "tty_vfs.c" "aot_run.c" "shell.c" "ssh_server.c" "drivers.c" "www.c" "svc.c" "wd.c" "ota.c" "timesync.c" "kv.c" "mqtt.c" "httpget.c" "klog.c")
 if(CONFIG_MINIESP_BENCH)
     list(APPEND MAIN_SRCS "bench.c")
 endif()

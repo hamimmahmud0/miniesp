@@ -217,6 +217,18 @@ btop              # run it from the shell (needs a real terminal: ssh -t / a nor
 ```
 Keys: `q` or Ctrl-C quit, `space` pause, `s` change sort (cpu / stack / name / pid), `+` / `-` refresh rate, `r` clear the graph.
 
+## Kernel log (`klog`)
+
+Everything the firmware and the programs log (`ESP_LOG`, `sys_log`; a program's `sys_log("E text")` / `"W text"` is logged as error / warning) is also kept in two files that take turns: `/log/kernel.log` (active) and `/log/kernel.1` (previous). Each may grow to half of min(512 KB, free filesystem space - 96 KB), at least 8 KB. Writes are batched (flash wear): errors and warnings reach the file within 10 s, other lines after 768 bytes or 2 minutes. Each boot logs its reset reason (power on / PANIC / watchdog / BROWNOUT). A clock line is added every 10 minutes (the log lines themselves carry the uptime).
+
+When the active file is full it is published over MQTT to `<client-id>/log/kernel` (text chunks of whole lines, QoS 0, preceded by a `--- kernel log ... ---` line) as soon as the broker is connected; if the broker is down it retries every minute until the file is replaced by the next rotation.
+```
+klog [N]       # the last N lines (default 40), oldest first
+klog status    # cap, file sizes, whether a file waits to be sent, lines dropped
+klog send      # close the active file now and publish it
+```
+Home Assistant / any MQTT client: subscribe to `wtms/log/kernel` (client id `wtms` by default; `mqtt status` shows yours).
+
 ## `pkg`: package manager
 
 `pkg update` downloads the journals listed in `/etc/pkg/sources.list` (default: `journals/main.journal` of this repo on GitHub, following `journal` links to other journals, max 16 journals / depth 3) and writes the merged list to `/var/pkg/index`; `pkg list [WORD]` shows it (`[i]` = installed), `pkg sources` prints the sources. `pkg` is part of the firmware image: if `/bin/pkg.aot` or `/etc/pkg/sources.list` is missing at boot (for example after the filesystem was wiped) it is written back automatically. `pkg install NAME` downloads, checks size, SHA-256 and `abi=` against the journal entry, and installs to `~/.local/bin`; `pkg remove NAME`, `pkg info NAME`. Installed names are also kept in the key-value store (`pkg.inst`), so `pkg fix` can reinstall them after the filesystem was lost (`pkg update` runs first if there is no index). Journal format: see `journals/main.journal`; `tools/mkjournal.sh DIR BASE_URL` prints `pkg` lines (with SHA-256 and size) for a directory of `.aot` files.

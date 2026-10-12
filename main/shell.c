@@ -15,6 +15,7 @@
 #include "ota.h"
 #include "kv.h"
 #include "mqtt.h"
+#include "klog.h"
 #include "timesync.h"
 #include "svc.h"
 #include "www.h"
@@ -485,6 +486,22 @@ static int cmd_free(sh_t *s, int c, char **v)
     return 0;
 }
 
+
+static void klog_out(const char *b, int n, void *ctx) { io_write(((sh_t *)ctx)->out, b, n); }
+static int cmd_klog(sh_t *s, int c, char **v)
+{
+    if (c > 1 && !strcmp(v[1], "send")) { klog_send_soon(); sh_printf(s, "ok: the current file is closed and published over MQTT as soon as the broker is connected\n"); return 0; }
+    if (c > 1 && !strcmp(v[1], "status")) {
+        int cap, cur, old, pend; unsigned dr;
+        klog_info(&cap, &cur, &old, &pend, &dr);
+        sh_printf(s, "cap %d KB (two files of half each): kernel.log %d B, kernel.1 %d B, %s, %u lines dropped (ring full)\n", cap, cur, old, pend ? "kernel.1 waiting to be sent" : "nothing waiting to be sent", dr);
+        return 0;
+    }
+    int n = c > 1 ? atoi(v[1]) : 40;
+    klog_tail(n > 0 ? n : 40, klog_out, s);
+    return 0;
+}
+
 static int cmd_uptime(sh_t *s, int c, char **v)
 {
     long sec = (long)(esp_timer_get_time() / 1000000);
@@ -849,6 +866,7 @@ static const struct { const char *name; cmd_fn fn; const char *help; } CMDS[] = 
     { "df", cmd_df, "filesystem usage" },
     { "free", cmd_free, "memory usage" },
     { "uptime", cmd_uptime, "time since boot" },
+    { "klog", cmd_klog, "klog [N] | status | send  (kernel log: last N lines; /log/kernel.log + kernel.1)" },
     { "ps", cmd_ps, "list tasks" },
     { "uname", cmd_uname, "system info" },
     { "hostname", cmd_hostname, "hostname [name]  (name.local via mDNS)" },

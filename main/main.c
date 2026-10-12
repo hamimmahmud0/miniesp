@@ -7,6 +7,7 @@
 #include "fs.h"
 #include "ssh_server.h"
 #include "mqtt.h"
+#include "klog.h"
 #include "ota.h"
 #include "svc.h"
 #include "timesync.h"
@@ -27,6 +28,7 @@ void app_main(void)
         ESP_ERROR_CHECK(nvs_flash_init());
     }
     fs_mount();
+    klog_init();               // kernel log -> /log/kernel.log, /log/kernel.1 (published over MQTT when a file fills up)
     tty_vfs_register();
     if (!aot_init()) ESP_LOGE(TAG, "WASM runtime unavailable: programs will not run");
     wifi_mgr_start();          // STA with predefined SSID, else AP

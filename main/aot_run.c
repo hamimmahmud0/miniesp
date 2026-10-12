@@ -545,7 +545,13 @@ static int sys_tz_(wasm_exec_env_t env, const char *spec) { return time_set_tz_s
 static int sys_abi_(wasm_exec_env_t env) { return SYS_ABI; }
 static uint32_t sys_random_(wasm_exec_env_t env) { return esp_random(); }
 static int sys_reboot_(wasm_exec_env_t env) { vTaskDelay(pdMS_TO_TICKS(300)); esp_restart(); return 0; }
-static int sys_log_(wasm_exec_env_t env, const char *msg) { ESP_LOGI("prog", "%s", msg); return 0; }
+static int sys_log_(wasm_exec_env_t env, const char *msg)       // "E text" / "W text" log as error / warning, anything else as info
+{
+    if (msg[0] == 'E' && msg[1] == ' ') ESP_LOGE("prog", "%s", msg + 2);
+    else if (msg[0] == 'W' && msg[1] == ' ') ESP_LOGW("prog", "%s", msg + 2);
+    else ESP_LOGI("prog", "%s", msg);
+    return 0;
+}
 static int sys_version_(wasm_exec_env_t env, char *buf, int n)
 {
     if (n <= 0) return -1;
