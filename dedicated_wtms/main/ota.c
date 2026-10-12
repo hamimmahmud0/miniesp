@@ -91,6 +91,6 @@ void ota_healthcheck_start(void)
     if (!pending) fs_migrate_legacy();
     if (pending) {
         ESP_LOGW(TAG, "running a new image: waiting to confirm it is healthy");
-        xTaskCreatePinnedToCore(healthcheck, "otacheck", 3072, NULL, 3, NULL, 0);
+        xTaskCreatePinnedToCore(healthcheck, "otacheck", 8192, NULL, 3, NULL, 0);
     }
 }
