@@ -13,6 +13,7 @@
 #include "freertos/semphr.h"
 #include "fsx.h"
 #include "mqttc.h"
+#include <time.h>
 #include "timex.h"
 
 static const char *TAG = "klog";
@@ -20,7 +21,7 @@ static const char *TAG = "klog";
 #define FILE_A FS_BASE "/log/kernel.log"
 #define FILE_B FS_BASE "/log/kernel.1"
 #define RING 2048
-#define LINE 256                                // longer lines are cut (the writer never sees more than this)
+#define LINE 288                                // longer lines are cut (the writer never sees more than this)
 #define CHUNK 900                               // MQTT payload per message (mqtt_publish limit is 1000)
 
 static char s_ring[RING];
@@ -54,14 +55,23 @@ static int klog_vprintf(const char *fmt, va_list ap)
     if (n < 0) n = 0;
     if (n >= (int)sizeof line) { n = sizeof line - 1; line[n - 1] = '\n'; }
     line[n] = 0;
-    fwrite(line, 1, n, stdout);                         // the original destination (UART console)
+    // wall-clock stamp (local time, 12-hour with AM/PM) once the clock is NTP-synced; the ESP prefix "I (12345) tag:" keeps the uptime
+    char stamp[32]; int sl = 0;
+    if (time_state() == 2) {
+        time_t tt = time(NULL); struct tm tm; localtime_r(&tt, &tm);
+        int h12 = tm.tm_hour % 12; if (!h12) h12 = 12;
+        sl = snprintf(stamp, sizeof stamp, "%04d-%02d-%02d %02d:%02d:%02d %s ", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, h12, tm.tm_min, tm.tm_sec, tm.tm_hour < 12 ? "AM" : "PM");
+    }
+    if (sl) fwrite(stamp, 1, sl, stdout);
+    fwrite(line, 1, n, stdout);                         // the console (UART)
     int r = n;
-    char out[LINE]; int o = 0, urgent = 0;
+    char out[LINE + 32]; int o = 0, urgent = 0;
+    for (int i = 0; i < sl; i++) out[o++] = stamp[i];
     for (int i = 0; i < n; i++) {                       // drop ESC [ ... m
         if (line[i] == 27 && i + 1 < n && line[i + 1] == '[') { while (i < n && line[i] != 'm') i++; continue; }
         out[o++] = line[i];
     }
-    if (o && (out[0] == 'E' || out[0] == 'W')) urgent = 1;
+    if (n && (line[0] == 'E' || line[0] == 'W')) urgent = 1;
     portENTER_CRITICAL(&s_mux);
     for (int i = 0; i < o; i++) s_live[(s_live_total + i) % LIVE] = out[i];
     s_live_total += o;

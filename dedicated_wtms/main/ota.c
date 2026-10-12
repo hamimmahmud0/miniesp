@@ -1,6 +1,8 @@
 #include "ota.h"
 #include <stdlib.h>
 #include <string.h>
+#include <arpa/inet.h>
+#include <sys/socket.h>
 #include "auth.h"
 #include "esp_app_format.h"
 #include "esp_log.h"
@@ -11,6 +13,7 @@
 #include "mbedtls/sha256.h"
 #include "fsx.h"
 #include "net.h"
+#include "web.h"
 #include "wtms_core.h"
 
 static const char *TAG = "ota";
@@ -31,8 +34,10 @@ esp_err_t ota_http_handler(httpd_req_t *req)
     char key[80] = "", tok[48] = "", q[100] = "", sha[70] = "";
     httpd_req_get_hdr_value_str(req, "X-Ota-Key", key, sizeof key);
     httpd_req_get_hdr_value_str(req, "X-Token", tok, sizeof tok);
+    char ip[48]; web_peer_ip(req, ip, sizeof ip);
     bool ok = (key[0] && auth_verify_password(key)) || (tok[0] && wtms_token_ok(tok));
-    if (!ok) { vTaskDelay(pdMS_TO_TICKS(1200)); return fail(req, "401 Unauthorized", "unauthorized\n"); }
+    if (!ok) { ESP_LOGW(TAG, "update from %s REFUSED: wrong key", ip); vTaskDelay(pdMS_TO_TICKS(1200)); return fail(req, "401 Unauthorized", "unauthorized\n"); }
+    ESP_LOGW(TAG, "update requested by %s", ip);
     if (httpd_req_get_url_query_str(req, q, sizeof q) != ESP_OK || httpd_query_key_value(q, "sha", sha, sizeof sha) != ESP_OK || strlen(sha) != 64) return fail(req, "400 Bad Request", "sha=<sha256 hex> required\n");
     int total = (int)req->content_len;
     if (total < 100000 || total > 0x160000) return fail(req, "400 Bad Request", "bad image size\n");

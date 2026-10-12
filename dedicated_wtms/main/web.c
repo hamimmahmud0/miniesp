@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <arpa/inet.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include "compat.h"
@@ -58,6 +59,45 @@ static esp_err_t send_file(httpd_req_t *req, const char *name)
     return e;
 }
 
+// address of the client of a request (the HTTP server's sockets are IPv6: an IPv4 client shows up as an IPv4-mapped address)
+void web_peer_ip(httpd_req_t *req, char *out, size_t n)
+{
+    struct sockaddr_storage ss; socklen_t l = sizeof ss;
+    snprintf(out, n, "?");
+    if (getpeername(httpd_req_to_sockfd(req), (struct sockaddr *)&ss, &l) != 0) return;
+    if (ss.ss_family == AF_INET) inet_ntop(AF_INET, &((struct sockaddr_in *)&ss)->sin_addr, out, n);
+    else if (ss.ss_family == AF_INET6) {
+        struct in6_addr *a6 = &((struct sockaddr_in6 *)&ss)->sin6_addr;
+        static const unsigned char mapped[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff };
+        if (!memcmp(a6->s6_addr, mapped, 12)) inet_ntop(AF_INET, a6->s6_addr + 12, out, n);
+        else inet_ntop(AF_INET6, a6, out, n);
+    }
+}
+#define peer_ip web_peer_ip
+
+// One log line per API call: who (IP), what, and the outcome. Tokens, passwords and broker credentials are never logged.
+static void log_api(httpd_req_t *req, int argc, char **argv, const char *body, int len)
+{
+    char ip[48]; peer_ip(req, ip, sizeof ip);
+    const char *sub = argv[2];
+    bool secret = !strcmp(sub, "login") || !strcmp(sub, "setup") || !strcmp(sub, "passwd") || !strcmp(sub, "mqttset");
+    char args[110] = ""; int o = 0;
+    for (int i = 4; !secret && i < argc && o < (int)sizeof args - 12; i++) o += snprintf(args + o, sizeof args - o, "%s%s", o ? " " : "", argv[i]);
+    char res[60] = "ok";
+    char *tmp = malloc(len + 1);
+    if (tmp) {
+        memcpy(tmp, body, len); tmp[len] = 0;
+        const char *e = strstr(tmp, "\"error\":\"");
+        if (e) { e += 9; int k = 0; while (e[k] && e[k] != '"' && k < (int)sizeof res - 8) k++; snprintf(res, sizeof res, "refused: %.*s", k, e); }
+        else if (strstr(tmp, "\"ok\":false")) snprintf(res, sizeof res, "failed");
+        free(tmp);
+    }
+    bool bad = strncmp(res, "ok", 2) != 0;
+    if (!strcmp(sub, "login") && bad) ESP_LOGW("api", "login FAILED from %s (%s)", ip, res);
+    else if (bad) ESP_LOGW("api", "%s %s %s -> %s", ip, sub, args, res);
+    else ESP_LOGI("api", "%s %s %s -> %s", ip, sub, args, res);
+}
+
 static esp_err_t api(httpd_req_t *req, const char *query)
 {
     char q[240]; strlcpy(q, query, sizeof q);
@@ -73,6 +113,7 @@ static esp_err_t api(httpd_req_t *req, const char *query)
     char *out = malloc(2048);
     if (!out) return send_text(req, "503 Service Unavailable", "out of memory\n");
     int n = wtms_web(argc, argv, out, 2048);
+    log_api(req, argc, argv, out, n);
     const char *body = out; int len = n;
     const char *type = "application/json";
     if (len > 13 && !strncasecmp(body, "Content-Type:", 13)) {                       // CGI-style header block

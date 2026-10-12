@@ -8,6 +8,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <arpa/inet.h>
 #include <unistd.h>
 #include "auth.h"
 #include "creds.h"
@@ -20,6 +21,7 @@
 static const char *TAG = "ssh";
 #define SSH_PORT 22
 static WOLFSSH_CTX *s_ctx;
+static char s_peer[20] = "?";                  // address of the client of the current session
 
 typedef struct { WOLFSSH *ssh; int fd; volatile bool want_shell, want_exec; char cmd[40]; int hard_errs; } sess_t;
 
@@ -29,8 +31,8 @@ extern const uint8_t hostkey_end[] asm("_binary_hostkey_der_end");
 static int user_auth(byte type, WS_UserAuthData *d, void *ctx)
 {
     if (type != WOLFSSH_USERAUTH_PASSWORD) return WOLFSSH_USERAUTH_INVALID_AUTHTYPE;
-    if (auth_check(d->username, d->usernameSz, d->sf.password.password, d->sf.password.passwordSz)) { ESP_LOGI(TAG, "login ok"); return WOLFSSH_USERAUTH_SUCCESS; }
-    ESP_LOGW(TAG, "login failed");
+    if (auth_check(d->username, d->usernameSz, d->sf.password.password, d->sf.password.passwordSz)) { ESP_LOGI(TAG, "login ok from %s (user %.*s)", s_peer, (int)d->usernameSz, (const char *)d->username); return WOLFSSH_USERAUTH_SUCCESS; }
+    ESP_LOGW(TAG, "login FAILED from %s (user %.*s)", s_peer, (int)d->usernameSz, (const char *)d->username);
     vTaskDelay(pdMS_TO_TICKS(1500));
     return WOLFSSH_USERAUTH_INVALID_PASSWORD;
 }
@@ -109,6 +111,9 @@ static void run_session(int fd)
     sess_t *s = calloc(1, sizeof *s);
     if (!s) { close(fd); return; }
     s->fd = fd;
+    { struct sockaddr_in a; socklen_t l = sizeof a; s_peer[0] = 0; if (getpeername(fd, (struct sockaddr *)&a, &l) == 0) inet_ntop(AF_INET, &a.sin_addr, s_peer, sizeof s_peer); }
+    ESP_LOGI(TAG, "connection from %s", s_peer);
+    TickType_t t_start = xTaskGetTickCount();
     s->ssh = wolfSSH_new(s_ctx);
     if (!s->ssh) { ESP_LOGE(TAG, "wolfSSH_new failed"); close(fd); free(s); return; }
     wolfSSH_set_fd(s->ssh, fd);
@@ -168,10 +173,11 @@ out:
     }
     shutdown(fd, SHUT_WR);
     for (int i = 0; i < 25; i++) { char j[64]; int n = recv(fd, j, sizeof j, MSG_DONTWAIT); if (n == 0) break; if (n < 0 && errno != EWOULDBLOCK && errno != EAGAIN) break; vTaskDelay(pdMS_TO_TICKS(20)); }
+    bool was_exec = s->want_exec;
     wolfSSH_free(s->ssh);
     close(fd);
     free(s);
-    ESP_LOGI(TAG, "session closed");
+    ESP_LOGI(TAG, "session from %s closed after %u s (%s)", s_peer, (unsigned)((xTaskGetTickCount() - t_start) / configTICK_RATE_HZ), was_exec ? "log command" : "live view");
 }
 
 static void server_task(void *arg)

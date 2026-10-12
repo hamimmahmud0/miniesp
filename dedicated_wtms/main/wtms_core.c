@@ -247,6 +247,7 @@ static void history(int pm, int pumpon)
     int lt[8]; sys_localtime(now, lt, 32);
     int date = lt[5] * 10000 + (lt[4] + 1) * 100 + lt[3];
     if (s_dd && date != s_dd) {                                    // a new day: store the finished one
+        wlog('I', "day %d closed: used %d.%d L, pumped %d.%d L, pump %d s, %d runs", s_dd, (s_du < 0 ? 0 : s_du) / 10, iabs(s_du) % 10, s_di / 10, s_di % 10, s_dps, s_dr);
         char l[56]; int k = m_snprintf(l, sizeof l, "%d,%d,%d,%d,%d\n", s_dd, s_du < 0 ? 0 : s_du, s_di, s_dps, s_dr);
         append_line(DAILY, DAILY_OLD, 12000, l, k);
         s_du = s_di = s_dps = s_dr = 0;
@@ -299,6 +300,7 @@ static void discovery(void)
     m_snprintf(x, sizeof x, "\"command_topic\":\"%s/cmd\",\"payload_press\":\"release\",\"icon\":\"mdi:autorenew\"", c_name);
     disc("button", "release", "Tank release force (auto)", x);
     s_disc = DISC_VER;
+    wlog('I', "Home Assistant discovery published (%s/...)", c_ha);
 }
 #endif
 
@@ -394,7 +396,7 @@ static int run_cycle(void)
     if (g_local_cmd[0]) { for (int k = 0; k < (int)sizeof buf - 1 && g_local_cmd[k]; k++) buf[k] = g_local_cmd[k], buf[k + 1] = 0; got = 1; }
     else if (mq && new_cmd(t_cmd, buf, sizeof buf, now)) got = 1;
     if (got) {
-        wlog('I', "command %s (%s)", buf, g_local_cmd[0] ? "local" : "mqtt");
+        wlog('I', "command %s (%s)", buf, g_local_cmd[0] ? "web" : "mqtt");
         int fmin = 0;                                                     // "force_on:30" -> 30 minutes
         for (char *q = buf; *q; q++) if (*q == ':') { fmin = m_atoi(q + 1); *q = 0; break; }
         if (eq(buf, "force_on")) { s_force = 1; if (fmin <= 0) fmin = c_maxrun; if (fmin > 1440) fmin = 1440; s_funtil = (int)now + fmin * 60; }
@@ -467,6 +469,7 @@ static int run_cycle(void)
         int dur = (int)now - was_since, added = pm_run_dl(pm, dur);
         if (added < 0) added = 0;
         s_lrl = added; s_lrs = dur; s_lrt = was_since; s_dr++;
+        wlog('I', "pump run ended: %d s, +%d.%d L (start %d.%d%% -> %d.%d%%)", dur, added / 10, added % 10, s_start / 10, s_start % 10, pm / 10, pm % 10);
         char l[40]; int k = m_snprintf(l, sizeof l, "%d,%d,%d\n", was_since, dur, added);
         append_line(RUNS, RUNS_OLD, 8000, l, k);
     }
@@ -498,8 +501,60 @@ static void show_cfg(void)
     }
 }
 
-// Validate the in-memory configuration and store it; returns an error text or NULL.
+static char s_cfg_prev[700];                                  // the configuration as last saved ("key=value" lines)
+static int cfg_text(char *buf, int n)
+{
+    int o = 0;
+    for (int i = 0; i < N(CFG) && o < n - 40; i++) {
+        if (CFG[i].n) o += m_snprintf(buf + o, n - o, "%s=%s\n", CFG[i].k, (const char *)CFG[i].p);
+        else o += m_snprintf(buf + o, n - o, "%s=%d\n", CFG[i].k, *(int *)CFG[i].p);
+    }
+    return o;
+}
+static void cfg_apply_text(char *t)                          // k=v lines -> variables
+{
+    for (char *p = t; *p;) {
+        char *e = p; while (*e && *e != '\n') e++;
+        int more = *e; *e = 0;
+        char *q = p; while (*q && *q != '=') q++;
+        if (*q) { *q = 0; apply(CFG, N(CFG), p, q + 1); }
+        p = more ? e + 1 : e;
+    }
+}
+static const char *cfg_validate_save_inner(void);
+// Validate the in-memory configuration and store it; returns an error text or NULL. A rejected change is undone and logged; an accepted one is logged key by key.
 static const char *cfg_validate_save(void)
+{
+    char now[700], prev[700];
+    strcpy(prev, s_cfg_prev);
+    const char *err = cfg_validate_save_inner();
+    if (err) {
+        wlog('W', "configuration change rejected: %s", err);
+        cfg_apply_text(prev); derive();                      // back to what is in force
+        return err;
+    }
+    cfg_text(now, sizeof now);
+    int changes = 0;
+    for (char *p = now; *p;) {                               // log every key whose value differs from the previous configuration
+        char *e = p; while (*e && *e != '\n') e++;
+        char save_c = *e; *e = 0;
+        char *q = p; while (*q && *q != '=') q++;
+        if (*q) {
+            *q = 0;
+            char want[80], key[24]; m_snprintf(key, sizeof key, "%s=", p);
+            const char *old = NULL;
+            for (const char *r = prev; *r;) { const char *re = strchr(r, '\n'); if (!strncmp(r, key, strlen(key))) { old = r + strlen(key); m_snprintf(want, sizeof want, "%.*s", re ? (int)(re - old) : (int)strlen(old), old); break; } r = re ? re + 1 : r + strlen(r); }
+            if (!old || strcmp(want, q + 1)) { wlog('I', "config %s: %s -> %s", p, old ? want : "(unset)", q + 1); changes++; }
+            *q = '=';
+        }
+        *e = save_c;
+        p = save_c ? e + 1 : e;
+    }
+    if (!changes) wlog('I', "configuration saved (no value changed)");
+    strcpy(s_cfg_prev, now);
+    return NULL;
+}
+static const char *cfg_validate_save_inner(void)
 {
     if (c_ml < 0 || (c_ml > 0 && c_ml < 100)) return "ml_cm must be 0 (use empty_mm) or at least 100";
     derive();
@@ -518,7 +573,6 @@ static const char *cfg_validate_save(void)
     if (c_tempc < -30 || c_tempc > 60) return "temp_c must be -30..60";
     if (!c_name[0] || !c_pump[0]) return "name and pump must not be empty";
     save("tank.cfg", CFG, N(CFG));
-    wlog('I', "configuration changed");
     s_disc = 0; s_ema = -1; s_jumps = 0; s_good = 0; s_pv = 0; s_pps = 0;
     save("tank.st", STT, N(STT));
     return NULL;
@@ -723,13 +777,15 @@ static int web(int argc, char **argv)
     }
     if (eq(sub, "readj")) {
         int d = measure();
-        if (d < 0) { jout("{\"ok\":false}"); return 0; }
+        if (d < 0) { wlog('W', "sensor read (web): failed - %s; valid %d/%d, no-echo %d, stuck %d, out-of-window %d, echo us min/med/max %d/%d/%d, agreeing %d", WHY[g_mwhy], g_mn, c_samples, g_mto, g_mstuck, g_mbad, g_mlo, g_mmed, g_mhi, g_magree); jout("{\"ok\":false}"); return 0; }
         int pm = level_pm(d); char o[120];
+        wlog('I', "sensor read (web): distance %d mm, level %d.%d%% (%d L), echo us min/med/max %d/%d/%d", d, pm / 10, pm % 10, c_vol * pm / 1000, g_mlo, g_mmed, g_mhi);
         m_snprintf(o, sizeof o, "{\"ok\":true,\"distance_mm\":%d,\"level\":%d.%d,\"litres\":%d}", d, pm / 10, pm % 10, c_vol * pm / 1000);
         jout(o); return 0;
     }
     if (eq(sub, "auto") && argc > 4) {
         c_auto = eq(argv[4], "on");
+        wlog('I', "auto mode %s (web)", c_auto ? "ON" : "OFF");
         save("tank.cfg", CFG, N(CFG));
         return do_act("noop");
     }
@@ -1012,6 +1068,7 @@ void wtms_init(void)
 {
     load("tank.cfg", CFG, N(CFG));
     derive();
+    cfg_text(s_cfg_prev, sizeof s_cfg_prev);
     load("tank.st", STT, N(STT));
     g_quiet = 1;
     s_inited = 1;
