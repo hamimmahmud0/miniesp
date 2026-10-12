@@ -153,18 +153,26 @@ static bool peer_gone(int fd)
     return false;
 }
 
-// returns 1 when the session should end: the user pressed q / Ctrl-C / Ctrl-D, or the client is gone
-static int read_keys(sess_t *s)
+// Wait up to 200 ms for the client; let wolfSSH process what arrived (window updates, keep-alives, requests) and read the keys only when it reports
+// channel data (wolfSSH_stream_read called blindly returned "general function failure" after ~80 s of idle). Returns 1 when the session should end:
+// q / Ctrl-C / Ctrl-D, the client closed, or the connection is gone.
+static int poll_input(sess_t *s)
 {
-    byte b[32];
-    int r = wolfSSH_stream_read(s->ssh, b, sizeof b);
-    if (r > 0) { s->odd = 0; for (int i = 0; i < r; i++) if (b[i] == 'q' || b[i] == 'Q' || b[i] == 3 || b[i] == 4) { ended(s, "user pressed", 0); snprintf(s->why, sizeof s->why, "user pressed %s", b[i] == 3 ? "Ctrl-C" : b[i] == 4 ? "Ctrl-D" : "q"); return 1; } return 0; }
+    if (!wait_fd(s->fd, false, 200)) return peer_gone(s->fd) ? (ended(s, "TCP connection lost", 0), 1) : 0;
+    word32 ch = 0;
+    int r = wolfSSH_worker(s->ssh, &ch);
     int e = r < 0 ? r : wolfSSH_get_error(s->ssh);
-    if (e == WS_EOF || e == WS_CHANNEL_CLOSED || e == WS_SOCKET_ERROR_E) { ended(s, "client closed the connection:", e); return 1; }
-    if (peer_gone(s->fd)) { ended(s, "TCP connection lost", 0); return 1; }
-    if (e == WS_WANT_READ || e == WS_CHAN_RXD || e == WS_EXTDATA || e == WS_WINDOW_FULL || e == WS_REKEYING || e == WS_SUCCESS) { s->odd = 0; return 0; }
-    if (e == WS_FATAL_ERROR && ++s->hard_errs <= 200) return 0;
-    if (++s->odd <= 200) return 0;                                       // unexpected but not fatal: keep the view alive
+    if (e == WS_CHAN_RXD) {
+        byte b[32];
+        int n = wolfSSH_stream_read(s->ssh, b, sizeof b);
+        if (n > 0) { for (int i = 0; i < n; i++) if (b[i] == 'q' || b[i] == 'Q' || b[i] == 3 || b[i] == 4) { snprintf(s->why, sizeof s->why, "user pressed %s", b[i] == 3 ? "Ctrl-C" : b[i] == 4 ? "Ctrl-D" : "q"); return 1; } }
+        s->hard_errs = 0; s->odd = 0;
+        return 0;
+    }
+    if (r == WS_SUCCESS || e == WS_WANT_READ || e == WS_WINDOW_FULL || e == WS_REKEYING || e == WS_EXTDATA || e == WS_WANT_WRITE) { s->hard_errs = 0; s->odd = 0; return 0; }
+    if (e == WS_SOCKET_ERROR_E || e == WS_EOF || e == WS_CHANNEL_CLOSED) { ended(s, "client closed the connection:", e); return 1; }
+    if (e == WS_FATAL_ERROR && ++s->hard_errs <= 200) { vTaskDelay(pdMS_TO_TICKS(2)); return 0; }
+    if (++s->odd <= 50) { vTaskDelay(pdMS_TO_TICKS(5)); return 0; }
     ended(s, "SSH error:", e);
     return 1;
 }
@@ -223,8 +231,7 @@ static void run_session(int fd)
             char b[200];
             int k = klog_live_read(&cur, b, sizeof b);
             if (k > 0) { if (send_log(s, b, k) < 0) break; continue; }
-            if (wait_fd(fd, false, 200)) { if (service(s) < 0) break; }
-            if (read_keys(s)) break;
+            if (poll_input(s)) break;
         }
     }
 out:
