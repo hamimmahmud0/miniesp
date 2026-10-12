@@ -84,6 +84,7 @@ You log in as **`esp`** (default password **`esp32`**, change it with `passwd`) 
 - `rm [-rf] path...` refuses to remove `/` (the whole filesystem).
 - Colors (terminal only): the prompt is green `user@host`, blue directory, and a red `$` after a failed command; `ls` shows directories in blue and `.aot` programs in green. Output sent to a pipe, a file or `ssh host "cmd"` stays plain.
 - Line editing: Left/Right, Home/End, Delete, Backspace, Ctrl-A/E/U/L/D, and Up/Down history; text is inserted at the cursor.
+- `tail [-n N] [-f] [FILE...]` is a preinstalled program (`-f` follows a growing or rotated log, e.g. `tail -f /log/kernel.log`; Ctrl-C stops).
 - `grep [-vci]`, `head [-n N]` and `wc [-lwc]` are built into the firmware, so they work in pipelines.
 - Arrow-up history, backspace, Ctrl-U/L/D work. **Ctrl-C stops a running program.**
 - Programs are `.aot` files, found in **`~/.local/bin`** (your own, searched first) and **`/bin`** (the system's). Run one by name: `hello`, `fib 30`, `ls /bin | grep aot | head -n 3`.
