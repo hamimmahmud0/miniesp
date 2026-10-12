@@ -1,0 +1,5 @@
+dependencies:
+  joltwallet/littlefs: "^1.20.0"
+  wolfssl/wolfssh: "^1.4.20"
+  wolfssl/wolfssl: "^5.7.6"
+  espressif/mdns: "^1.4.0"

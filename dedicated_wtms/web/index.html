@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Water tank - miniesp</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="tank.css"><script src="/ui.js"></script></head>
+<body data-nav="tank">
+<div class="app"><main class="main"><div class="page">
+<div class="ph"><div><h1>Water tank</h1><p><span class="status"><span class="dot" id="hdot"></span><span id="hstate">Loading</span></span></p>
+ <p>Tank level, pump control and water usage. <a href="https://github.com/hamimmahmud0/miniesp-pkg/tree/main/packages/wtms" target="_blank" rel="noopener">See how the tank manager works</a></p></div>
+ <div class="actions" id="act"><a class="btn btn-primary" href="login.html?next=index.html">Log in</a></div></div>
+<div id="alerts"></div>
+<div class="tank-top">
+ <div class="stack">
+  <div class="card"><h2><svg class="ic"><use href="#i-droplet"/></svg>Level</h2>
+   <div class="gauge"><div class="tankv"><div class="fill" id="fill"></div><div class="mark" id="mon"></div><div class="mark" id="moff"></div><div class="pct" id="pct">--</div></div>
+    <dl class="dl"><dt>Volume</dt><dd id="l">--</dd><dt>Water height</dt><dd id="hcm">--</dd><dt>Pump</dt><dd><span class="badge" id="pump">--</span></dd><dt>Mode</dt><dd id="mode">--</dd><dt>Fault</dt><dd><span class="badge" id="fault">--</span></dd></dl></div>
+   <p class="muted small" id="ts" style="margin-top:14px">--</p></div>
+  <div class="card" id="ctl" hidden><h2><svg class="ic"><use href="#i-power"/></svg>Pump control</h2><div id="ctlbox"></div></div>
+  <div class="card" id="guest"><h2><svg class="ic"><use href="#i-power"/></svg>Pump control</h2><p class="muted">Log in to force the pump on or off and to change settings.</p><div class="btns" style="margin-top:14px"><a class="btn btn-primary" href="login.html?next=index.html">Log in</a></div></div>
+ </div>
+ <div class="stack">
+  <div class="stats" id="tiles">
+   <div class="stat"><span>Water usage now</span><b id="t_use">--</b><small id="t_use2">recent average while idle</small></div>
+   <div class="stat"><span>Pump intake rate</span><b id="t_in">--</b><small id="t_in2">&nbsp;</small></div>
+   <div class="stat"><span>Used today</span><b id="t_td">--</b><small id="t_td2">&nbsp;</small></div>
+   <div class="stat"><span>Pump today</span><b id="t_pp">--</b><small id="t_pp2">&nbsp;</small></div>
+   <div class="stat"><span id="t_eta_l">Estimate</span><b id="t_eta">--</b><small id="t_eta2">&nbsp;</small></div>
+   <div class="stat"><span>Sensor</span><b id="t_se">--</b><small id="t_se2">&nbsp;</small></div>
+  </div>
+  <div class="card"><div class="card-head"><h2><svg class="ic"><use href="#i-activity"/></svg>Tank level</h2>
+   <div class="seg rng" role="group" aria-label="Time range"><button data-h="6">6 h</button><button data-h="24" class="cur">24 h</button><button data-h="168">7 days</button><button data-h="0">All</button></div></div>
+   <div class="legend" id="lg_level"></div>
+   <div class="chartbox"><canvas id="c_level" role="img" aria-label="Tank level over time"></canvas></div><p class="muted small" id="r_level"></p></div>
+ </div>
+</div>
+<div class="grid-2 wide-gap">
+ <div class="card"><div class="card-head"><h2><svg class="ic"><use href="#i-activity"/></svg>Water usage rate</h2></div><div class="legend" id="lg_use"></div>
+  <div class="chartbox"><canvas id="c_use" role="img" aria-label="Water usage in litres per minute"></canvas></div><p class="muted small" id="r_use"></p></div>
+ <div class="card"><div class="card-head"><h2><svg class="ic"><use href="#i-droplet"/></svg>Pump intake rate</h2></div><div class="legend" id="lg_in"></div>
+  <div class="chartbox"><canvas id="c_in" role="img" aria-label="Pump intake rate per run in litres per minute"></canvas></div><p class="muted small" id="r_in"></p></div>
+</div>
+<div class="grid-2 wide-gap">
+ <div class="card"><div class="card-head"><h2><svg class="ic"><use href="#i-gauge"/></svg>Pump intake trend</h2>
+  <div class="seg" id="ttabs" role="group" aria-label="Runs shown"><button data-n="10">10 runs</button><button data-n="30" class="cur">30 runs</button><button data-n="0">All</button></div></div><div class="legend" id="lg_tr"></div>
+  <div class="chartbox"><canvas id="c_tr" role="img" aria-label="Pump intake rate per run with trend"></canvas></div><p class="muted small" id="r_tr"></p></div>
+ <div class="card"><h2><svg class="ic"><use href="#i-alert"/></svg>Checks &amp; alerts</h2>
+  <div class="checks" id="checks"></div>
+  <div class="field"><label for="a_leak">Leak alert above<small>overnight usage 02:00&ndash;05:00, L/min</small></label><input id="a_leak" type="number" min="0" step="0.05" inputmode="decimal"></div>
+  <div class="field"><label for="a_bud">Daily budget<small>litres per day, 0 = off</small></label><input id="a_bud" type="number" min="0" step="10" inputmode="numeric"></div>
+  <p class="muted small">Checks and limits run in this browser and are saved on this device only.</p></div>
+</div>
+<div class="card wide-gap"><div class="card-head"><h2><svg class="ic"><use href="#i-clock"/></svg>Daily water usage</h2>
+ <div class="seg" id="dtabs" role="group" aria-label="Days shown"><button data-d="7">7 days</button><button data-d="14" class="cur">14 days</button><button data-d="30">30 days</button><button data-d="m">Monthly</button></div></div>
+ <div class="legend" id="lg_day"></div>
+ <div class="chartbox"><canvas id="c_day" role="img" aria-label="Water used per day in litres"></canvas></div><p class="muted small" id="r_day"></p>
+ <div class="btns exp" style="margin-top:16px"><button class="btn" type="button" data-x="history"><svg class="ic"><use href="#i-download"/></svg>Level history (CSV)</button><button class="btn" type="button" data-x="daily"><svg class="ic"><use href="#i-download"/></svg>Daily totals (CSV)</button><button class="btn" type="button" data-x="runs"><svg class="ic"><use href="#i-download"/></svg>Pump runs (CSV)</button></div></div>
+<p class="muted small" style="margin-top:var(--gap)">Usage is measured from the level: while the pump is idle, usage is the drop in volume; while it runs, the recent idle usage rate is assumed to continue, so the pump intake rate and daily totals are estimates (the sensor resolves about 1&nbsp;L). Rates are averaged over a few samples to hide the sensor's 1&nbsp;L steps.</p>
+</div></main></div>
+<script src="tank.js"></script><script src="chart.js"></script>
+<script>
+let last=null,H=[],D=[],RUNS=[],hours=24,days=14,nruns=30,ch={};
+const ls=(k,d)=>{try{const v=localStorage.getItem(k);return v===null?d:v}catch(e){return d}}, lset=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
+const sty=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const f1=v=>(Math.round(v*10)/10).toString(), f2=v=>v>=10?Math.round(v).toString():f1(v);
+const fl=v=>f1(v)+' L', fr=v=>(Math.round(v*100)/100).toFixed(2)+' L/min';
+const hm=t=>new Date(t*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+const dm=t=>new Date(t*1000).toLocaleDateString([],{month:'short',day:'numeric'});
+const dur=s=>{s=Math.round(s/60)*60;return s>=3600?Math.floor(s/3600)+' h '+Math.floor(s%3600/60)+' min':Math.round(s/60)+' min'};
+const ymd=n=>{const y=Math.floor(n/10000),m=Math.floor(n/100)%100,d=n%100;return {y,m,d,date:new Date(y,m-1,d)}};
+function render(s){
+  last=s; const vol=s.vol||1000;
+  $('fill').style.height=s.level+'%'; $('pct').textContent=Math.round(s.level)+'%';
+  $('mon').style.bottom=s.on_pct+'%'; $('moff').style.bottom=s.off_pct+'%';
+  $('l').textContent=s.litres+' / '+vol+' L'; $('hcm').textContent=s.lpcm>0?f1(s.level/100*vol*1000/s.lpcm)+' cm':'—';
+  $('pump').textContent=s.pump+(s.force&&s.force!=='none'?' (forced)':''); $('pump').className='badge '+(s.pump==='ON'?'ok':'');
+  $('mode').textContent=s.force==='on'?'Forced ON':s.force==='off'?'Forced OFF':s.auto==='ON'?'Automatic':'Auto off';
+  $('fault').textContent=s.fault; $('fault').className='badge '+(s.fault==='none'?'ok':'bad');
+  $('hdot').className='dot '+(s.fault==='none'?'ok':'bad'); $('hstate').textContent=s.fault!=='none'?'Fault: '+s.fault:s.pump==='ON'?'Pump running':'Idle';
+  const age=s.ts?Math.round(Date.now()/1000-s.ts):0;
+  $('ts').textContent=s.ts?'Updated '+new Date(s.ts*1000).toLocaleString()+(age>120?'  — STALE: the controller has not reported for '+Math.round(age/60)+' min':''):'Clock not set';
+  tiles(s); T.showForce&&T.showForce(s);
+}
+function tiles(s){
+  const has=s.use_lpm!==undefined, on=s.pump==='ON', vol=s.vol||1000, v=s.litres;
+  $('t_use').textContent=has?fr(+s.use_lpm):'—'; $('t_use2').textContent=has?(on?'estimated while the pump runs':'recent average while idle'):'update the controller program';
+  $('t_in').textContent=has&&+s.in_lpm>0?fr(+s.in_lpm):(on?'measuring…':'—');
+  $('t_in2').textContent=s.lr_s>0&&s.lr_t?(on?'live estimate · ':'')+'last run '+dm(s.lr_t)+' '+hm(s.lr_t)+': +'+f1(+s.lr_l)+' L in '+dur(s.lr_s):(on?'a few minutes needed':'no pump run recorded yet');
+  const prev=D.length?D.filter(d=>d.date<todayKey()).slice(-1)[0]:null;
+  $('t_td').textContent=has?fl(+s.td_use):'—'; $('t_td2').textContent=prev?'yesterday '+f1(prev.use)+' L · avg '+f1(avgUse())+' L/day':'since midnight';
+  $('t_pp').textContent=has?dur(s.td_pump_s):'—'; $('t_pp2').textContent=has?s.td_runs+' run'+(s.td_runs==1?'':'s')+' · +'+f1(+s.td_in)+' L pumped':'';
+  const use=+s.use_lpm||0, inn=+s.in_lpm||0;
+  if(on){ const net=inn-use, tgt=s.off_pct/100*vol; $('t_eta_l').textContent='Time to full'; $('t_eta').textContent=net>0.3?'~'+dur((tgt-v)/net*60):'—'; $('t_eta2').textContent='until '+s.off_pct+'% at the net fill rate' }
+  else if(use>0.05){ const lo=s.on_pct/100*vol, tl=(v-lo)/use; $('t_eta_l').textContent='Pump starts in'; $('t_eta').textContent=tl>0?'~'+dur(tl*60):'now'; $('t_eta2').textContent='empty in ~'+dur(v/use*60)+' at this rate' }
+  else { $('t_eta_l').textContent='Estimate'; $('t_eta').textContent='—'; $('t_eta2').textContent='no water use right now' }
+  $('t_se').textContent=s.distance_cm+' cm'; $('t_se2').textContent=(s.temp&&+s.temp!==0?s.temp+' °C · ':'')+'start '+s.on_pct+'% / stop '+s.off_pct+'%';
+}
+const todayKey=()=>last&&last.td_date?last.td_date:+(new Date().toISOString().slice(0,10).replace(/-/g,''));
+const avgUse=()=>{const d=D.filter(x=>x.date<todayKey());return d.length?d.reduce((a,b)=>a+b.use,0)/d.length:0};
+async function state(){ try{render(await (await fetch('state.json?'+Date.now())).json());drawAll()}catch(e){$('ts').textContent='No data yet.'} }
+async function csv(u){try{const r=await fetch(u+'?'+Date.now());if(!r.ok)return[];return (await r.text()).trim().split('\n').map(l=>l.split(',').map(Number)).filter(a=>a.length>=3&&a[0]>1e6&&!a.some(isNaN))}catch(e){return[]}}
+async function loadAll(){
+  const [ho,hn,do_,dn,ro,rn]=await Promise.all(['history.old.csv','history.csv','daily.old.csv','daily.csv','runs.old.csv','runs.csv'].map(csv));
+  const hs=new Map(); for(const r of ho.concat(hn)) if(r.length>=4) hs.set(r[0],r); H=[...hs.values()].sort((a,b)=>a[0]-b[0]);
+  D=do_.concat(dn).filter(r=>r.length>=5).map(r=>({key:r[0],date:r[0],use:r[1]/10,inn:r[2]/10,ps:r[3],runs:r[4]}));
+  const dd=new Map(); for(const d of D) dd.set(d.key,d); D=[...dd.values()].sort((a,b)=>a.key-b.key);
+  const rs=new Map(); for(const r of ro.concat(rn)) rs.set(r[0],r); RUNS=[...rs.values()].sort((a,b)=>a[0]-b[0]).map(r=>({t0:r[0],dur:r[1],l:r[2]/10,t1:r[0]+r[1],rate:r[1]>0?r[2]/10/(r[1]/60):0}));
+  drawAll(); if(last)tiles(last);
+}
+/* ---- charts ---- */
+function win(t1){ return hours?[t1-hours*3600,t1]:[H.length?H[0][0]:t1-3600,t1] }
+function dtOf(rows){ const d=rows.slice(1).map((r,i)=>r[0]-rows[i][0]).sort((a,b)=>a-b); return d.length?Math.max(5,d[d.length>>1]):300 }
+function bands(rows){ const b=[], dt=dtOf(rows); for(let i=0;i<rows.length;i++) if(rows[i][3]){ const t1=i+1<rows.length?rows[i+1][0]:rows[i][0]+dt; if(b.length&&b[b.length-1][1]>=rows[i][0]-1)b[b.length-1][1]=t1; else b.push([rows[i][0],t1]) } return b }
+function mk(id,lg){ if(!ch[id]){ ch[id]=new Chart($(id).parentNode,{}); } return ch[id] }
+function legend(el,items,chart){
+  el.innerHTML=''; for(const it of items){ const b=document.createElement('button'); b.type='button'; b.className='lg'+(it.off?' off':''); b.innerHTML='<i style="background:'+it.color+'"></i>'+it.name; if(it.sid){ b.onclick=()=>{ const s=chart.opt.series.find(x=>x.id===it.sid); s.visible=s.visible===false; chart.draw(); b.classList.toggle('off',s.visible===false) } } else b.disabled=true; el.appendChild(b) }
+}
+function drawAll(){
+  const t1=H.length?H[H.length-1][0]:(last&&last.ts)||Math.round(Date.now()/1000), [w0,w1]=win(t1), rows=H.filter(r=>r[0]>=w0&&r[0]<=w1), vol=(last&&last.vol)||1000;
+  const water=sty('--water'), cuse=sty('--c-use'), cin=sty('--c-in'), mute=sty('--mute');
+  // level
+  { const c=mk('c_level'), pts=rows.map(r=>[r[0],r[1]/1000*vol,r]);
+    c.set({xmode:'time',x0:w0,x1:w1,left:{min:0,max:vol,step:vol/4,fmt:v=>Math.round(v)+' L'},right:{min:0,max:100,step:25,fmt:v=>v+'%'},
+      series:[{id:'lv',name:'Level',color:water,type:'area',axis:'left',pts}],bands:bands(rows),
+      hlines:last?[{y:last.on_pct/100*vol,label:'start '+last.on_pct+'%',color:sty('--warn')},{y:last.off_pct/100*vol,label:'stop '+last.off_pct+'%',color:sty('--ok')}]:[],
+      empty:'Not enough history yet',
+      tip:i=>{const r=i.items[0].p[2];return '<b>'+dm(r[0])+' '+hm(r[0])+'</b><br>'+f1(r[1]/10)+'% · '+f1(i.items[0].y)+' L'+(r[3]?'<br><span class="tg">pump running</span>':'')}});
+    legend($('lg_level'),[{name:'Level',color:water,sid:'lv'},{name:'Pump running',color:sty('--ok')},{name:'Start / stop',color:mute}],c);
+    if(pts.length){let mn=Infinity,mx=0,sm=0;for(const p of pts){mn=Math.min(mn,p[1]);mx=Math.max(mx,p[1]);sm+=p[1]} $('r_level').textContent='Range '+dm(w0)+' '+hm(w0)+' – '+dm(w1)+' '+hm(w1)+' · min '+Math.round(mn)+' L · max '+Math.round(mx)+' L · avg '+Math.round(sm/pts.length)+' L · '+bands(rows).length+' pump run'+(bands(rows).length==1?'':'s')}
+    else $('r_level').textContent='' ; $('c_level').setAttribute('aria-label','Tank level, '+pts.length+' samples') }
+  // usage rate
+  { const c=mk('c_use'), pts=rows.filter(r=>r.length>=6).map(r=>[r[0],r[4]/1000,r]), dt=dtOf(rows), rad=Math.max(1,Math.round((hours===6?600:hours===24?1200:2400)/dt)), win=Math.round((2*rad+1)*dt/60), sm=pts.map((p,i)=>{let a=0,n=0;for(let k=Math.max(0,i-rad);k<=Math.min(pts.length-1,i+rad);k++){a+=pts[k][1];n++}return [p[0],Math.max(0,a/n),p[2]]});
+    const avg=pts.length?Math.max(0,pts.reduce((a,p)=>a+p[1],0)/pts.length):0, peak=sm.reduce((a,p)=>Math.max(a,p[1]),0);
+    c.set({xmode:'time',x0:w0,x1:w1,left:{min:0,fmt:v=>f2(v)},series:[{id:'us',name:'Usage',color:cuse,type:'area',axis:'left',pts:sm}],bands:bands(rows),
+      hlines:pts.length?[{y:avg,label:'avg '+f2(avg)+' L/min',color:mute}]:[],empty:rows.length&&!pts.length?'Collecting rate data (needs the updated controller)…':'Not enough history yet',
+      tip:i=>{const r=i.items[0].p[2];return '<b>'+dm(r[0])+' '+hm(r[0])+'</b><br>'+fr(i.items[0].y)+' <span class="mu">('+win+'-min average)</span><br>raw value '+fr(r[4]/1000)+(r[3]?'<br><span class="tg">estimated: pump was running</span>':'')}});
+    legend($('lg_use'),[{name:'Usage, L/min',color:cuse,sid:'us'},{name:'Pump running',color:sty('--ok')}],c);
+    $('r_use').textContent=pts.length?'Average '+fr(avg)+' · peak '+fr(peak)+' (smoothed over about '+win+' minutes)':''; $('c_use').setAttribute('aria-label','Water usage, average '+f2(avg)+' litres per minute') }
+  // intake per run
+  { const c=mk('c_in'), rr=RUNS.filter(r=>r.t1>=w0&&r.t0<=w1), pts=rr.map(r=>[r.t0,r.rate,r]), avg=rr.length?rr.reduce((a,r)=>a+r.l,0)/(rr.reduce((a,r)=>a+r.dur,0)/60):0;
+    pts.forEach(p=>p[2]={end:p[2].t1,run:p[2]});
+    c.set({xmode:'time',x0:w0,x1:w1,left:{min:0,fmt:v=>f2(v)},series:[{id:'in',name:'Pump intake',color:cin,type:'runbar',axis:'left',pts}],
+      hlines:rr.length?[{y:avg,label:'avg '+f1(avg)+' L/min',color:mute}]:[],empty:'No pump runs recorded in this range',
+      tip:i=>{const r=i.items[0].p[2].run;return '<b>'+dm(r.t0)+' '+hm(r.t0)+' – '+hm(r.t1)+'</b><br>'+fr(r.rate)+'<br>+'+f1(r.l)+' L in '+dur(r.dur)}});
+    legend($('lg_in'),[{name:'Run: height = L/min, width = duration',color:cin,sid:'in'}],c);
+    $('r_in').textContent=rr.length?rr.length+' run'+(rr.length==1?'':'s')+' · '+f1(rr.reduce((a,r)=>a+r.l,0))+' L pumped · weighted average '+fr(avg):''; $('c_in').setAttribute('aria-label','Pump intake rate, '+rr.length+' runs') }
+  // daily / monthly
+  { const c=mk('c_day'), today=todayKey(), cur=last&&last.use_lpm!==undefined?{key:today,date:today,use:+last.td_use,inn:+last.td_in,ps:last.td_pump_s,runs:last.td_runs,partial:true}:null;
+    let all=D.filter(d=>d.key!==today); if(cur)all.push(cur); const monthly=days==='m';
+    if(monthly){ const m=new Map(); for(const d of all){ const k=Math.floor(d.key/100), o=m.get(k)||{key:k,use:0,inn:0,ps:0,runs:0,n:0}; o.use+=d.use;o.inn+=d.inn;o.ps+=d.ps;o.runs+=d.runs;o.n++;if(d.partial)o.partial=true;m.set(k,o) } all=[...m.values()].slice(-12) }
+    else all=all.slice(-days);
+    const ym=k=>new Date(Math.floor(k/100),k%100-1,1), cats=all.map(d=>monthly?ym(d.key).toLocaleDateString([],{month:'short',year:'2-digit'}):ymd(d.key).date.toLocaleDateString([],{month:'short',day:'numeric'}));
+    const us=all.map((d,i)=>[i,d.use,{partial:d.partial}]), inn=all.map((d,i)=>[i,d.inn,{partial:d.partial}]), done=all.filter(d=>!d.partial), avg=done.length?done.reduce((a,d)=>a+d.use,0)/done.length:0, bud=+ls('tank_bud',0);
+    c.set({xmode:'cat',cats,catLabel:i=>{const d=all[i];return (monthly?ym(d.key).toLocaleDateString([],{month:'long',year:'numeric'}):ymd(d.key).date.toLocaleDateString([],{weekday:'short',month:'short',day:'numeric'}))+(d.partial?(monthly?' (so far)':' (so far)'):'')},left:{min:0,fmt:v=>Math.round(v)+' L'},
+      series:[{id:'u',name:'Used',color:cuse,type:'bar',axis:'left',pts:us},{id:'i',name:'Pumped in',color:cin,type:'bar',axis:'left',pts:inn}],
+      hlines:(done.length?[{y:avg,label:'avg '+Math.round(avg)+(monthly?' L/month':' L/day'),color:mute}]:[]).concat(!monthly&&bud>0?[{y:bud,label:'budget '+bud+' L',color:sty('--bad')}]:[]),empty:'No daily totals yet: the first appears after midnight',
+      tip:i=>{const d=all[i.key];return d?'<b>'+i.label+'</b><br><span class="sw" style="background:'+cuse+'"></span>Used '+fl(d.use)+(monthly?' · '+f1(d.use/d.n)+' L/day':'')+'<br><span class="sw" style="background:'+cin+'"></span>Pumped in '+fl(d.inn)+'<br>'+dur(d.ps)+' pumping · '+d.runs+' run'+(d.runs==1?'':'s'):''}});
+    legend($('lg_day'),[{name:'Used',color:cuse,sid:'u'},{name:'Pumped in',color:cin,sid:'i'}],c);
+    $('r_day').textContent=done.length?'Average '+Math.round(avg)+(monthly?' L/month over '+done.length+' full month'+(done.length==1?'':'s'):' L/day over '+done.length+' full day'+(done.length==1?'':'s'))+' · highest '+Math.round(Math.max(...done.map(d=>d.use)))+' L'+(cur?' · '+(monthly?'this month':'today')+' so far '+f1(all.length?all[all.length-1].use:0)+' L (lighter bar)':''):all.length?(monthly?'No complete month yet: ':'')+'so far '+f1(all[all.length-1].use)+' L (lighter bar)':'';
+    $('c_day').setAttribute('aria-label',(monthly?'Monthly':'Daily')+' water usage, average '+Math.round(avg)+' litres') }
+  trend(); checks();
+}
+/* ---- pump intake trend, checks, alerts, CSV export ---- */
+function lin(ys){ const n=ys.length; if(n<2)return null; let sx=0,sy=0,sxy=0,sxx=0; ys.forEach((y,i)=>{sx+=i;sy+=y;sxy+=i*y;sxx+=i*i}); const d=n*sxx-sx*sx; if(!d)return null; const m=(n*sxy-sx*sy)/d; return {m,b:(sy-m*sx)/n} }
+const med=a=>{const s=[...a].sort((x,y)=>x-y);return s.length?s[s.length>>1]:0};
+function intakeCheck(){ const r=RUNS.filter(x=>x.dur>=120).map(x=>x.rate); if(r.length<5)return {st:'wait',txt:'Needs at least 5 pump runs ('+r.length+' so far)'}; const recent=med(r.slice(-3)), base=med(r.slice(-13,-3)), ch=(recent-base)/base*100;
+  return ch<-15?{st:'warn',txt:'Recent runs average '+f1(recent)+' L/min, '+Math.round(-ch)+'% below the earlier '+f1(base)+' L/min: check the intake filter, valve and pump'}:{st:'ok',txt:'Recent runs '+f1(recent)+' L/min, steady ('+(ch>=0?'+':'')+Math.round(ch)+'% vs earlier)'} }
+function trend(){
+  const c=mk('c_tr'), rr=RUNS.filter(x=>x.dur>=120), sel=nruns?rr.slice(-nruns):rr, ys=sel.map(r=>r.rate), fit=lin(ys), cin=sty('--c-in'), cuse=sty('--c-use');
+  const cats=sel.map(r=>dm(r.t0)), pts=sel.map((r,i)=>[i,r.rate,{run:r}]), tl=fit?sel.map((r,i)=>[i,Math.max(0,fit.b+fit.m*i)]):[];
+  c.set({xmode:'cat',cats,catLabel:i=>{const r=sel[i];return dm(r.t0)+' '+hm(r.t0)},left:{min:0,fmt:v=>f2(v)},
+    series:[{id:'rt',name:'Run rate',color:cin,type:'bar',axis:'left',pts},{id:'tr',name:'Trend',color:cuse,type:'line',axis:'left',pts:tl}],empty:'No pump runs recorded yet',
+    tip:i=>{const r=sel[i.key];return r?'<b>'+i.label+'</b><br>'+fr(r.rate)+'<br>+'+f1(r.l)+' L in '+dur(r.dur):''}});
+  legend($('lg_tr'),[{name:'L/min per run',color:cin,sid:'rt'},{name:'Trend',color:cuse,sid:'tr'}],c);
+  const ic=intakeCheck(); $('r_tr').textContent=fit&&ys.length>2?'Trend '+(fit.m>=0?'+':'')+f2(fit.m*(ys.length-1))+' L/min over '+ys.length+' runs. '+ic.txt:ic.txt;
+}
+function nights(){
+  const dt=dtOf(H.slice(-400)), need=Math.max(6,Math.floor(.6*3*3600/dt)), by={};
+  for(const r of H){ if(r.length<6||r[3])continue; const d=new Date(r[0]*1000),h=d.getHours(); if(h<2||h>=5)continue; const k=d.getFullYear()*10000+(d.getMonth()+1)*100+d.getDate(); (by[k]=by[k]||[]).push(r[4]/1000) }
+  return Object.keys(by).filter(k=>by[k].length>=need).map(k=>({key:+k,mean:by[k].reduce((a,b)=>a+b,0)/by[k].length})).slice(-7)
+}
+function checks(){
+  const el=$('checks'), al=[], rows=[], thr=+ls('tank_leak',0.3), bud=+ls('tank_bud',0), n=nights();
+  if(n.length){ const l=n[n.length-1], bad=thr>0&&l.mean>thr; rows.push([bad?'bad':'ok','Overnight usage','Last night (02:00–05:00) averaged '+fr(l.mean)+(bad?' — above your '+fr(thr)+' limit: a tap or pipe may be leaking':' — normal')+(n.length>1?'. Nights: '+n.map(x=>f2(x.mean)).join(', ')+' L/min':'')]); if(bad)al.push('Possible leak: usage overnight was '+fr(l.mean)) }
+  else rows.push(['mute','Overnight usage','Needs a night of history with the updated controller (02:00–05:00)']);
+  const ic=intakeCheck(); rows.push([ic.st==='warn'?'bad':ic.st==='ok'?'ok':'mute','Pump intake',ic.txt]); if(ic.st==='warn')al.push('Pump intake rate dropped: '+ic.txt);
+  if(bud>0&&last&&last.use_lpm!==undefined){ const used=+last.td_use, now=new Date(), frac=Math.max(.05,(now.getHours()*60+now.getMinutes())/1440), proj=used/frac;
+    const st=used>bud?'bad':proj>bud*1.1&&frac>.25?'warn':'ok'; rows.push([st,'Daily budget',f1(used)+' of '+bud+' L used today ('+Math.round(used/bud*100)+'%)'+(used>bud?' — over budget':st==='warn'?' — on track for about '+Math.round(proj)+' L':'')]); if(used>bud)al.push('Over the daily budget: '+f1(used)+' L of '+bud+' L') }
+  else rows.push(['mute','Daily budget',bud>0?'Waiting for today\'s data':'Off (set a limit below)']);
+  el.innerHTML=rows.map(r=>'<div class="chk"><span class="dot '+(r[0]==='ok'?'ok':r[0]==='bad'?'bad':r[0]==='warn'?'warn':'')+'"></span><div><b>'+r[1]+'</b><div class="muted">'+r[2]+'</div></div></div>').join('');
+  $('alerts').innerHTML=al.map(t=>'<div class="alert"><svg class="ic"><use href="#i-alert"/></svg><div>'+t.replace(/</g,'&lt;')+'</div></div>').join('');
+}
+function exportCsv(kind){
+  let head,rows,name;
+  if(kind==='history'){ head='time_iso,epoch,level_pct,litres,pump,usage_l_min,intake_l_min'; name='tank-history.csv'; rows=H.map(r=>[new Date(r[0]*1000).toISOString(),r[0],r[1]/10,r[2],r[3],r.length>=6?r[4]/1000:'',r.length>=6?r[5]/1000:'']) }
+  else if(kind==='daily'){ head='date,used_l,pumped_in_l,pump_minutes,runs'; name='tank-daily.csv'; rows=D.map(d=>{const y=ymd(d.key);return [y.y+'-'+String(y.m).padStart(2,'0')+'-'+String(y.d).padStart(2,'0'),d.use,d.inn,Math.round(d.ps/60),d.runs]}) }
+  else { head='start_iso,epoch,seconds,added_l,rate_l_min'; name='tank-pump-runs.csv'; rows=RUNS.map(r=>[new Date(r.t0*1000).toISOString(),r.t0,r.dur,r.l,Math.round(r.rate*100)/100]) }
+  const blob=new Blob([head+'\n'+rows.map(r=>r.join(',')).join('\n')+'\n'],{type:'text/csv'}), a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},500);
+}
+document.querySelector('.exp').onclick=e=>{ if(e.target.dataset.x)exportCsv(e.target.dataset.x) };
+$('ttabs').onclick=e=>{ if(e.target.dataset.n===undefined)return; nruns=+e.target.dataset.n; for(const b of $('ttabs').children)b.classList.toggle('cur',b===e.target); trend() };
+$('a_leak').value=ls('tank_leak',0.3); $('a_bud').value=ls('tank_bud',0);
+$('a_leak').onchange=()=>{lset('tank_leak',Math.max(0,+$('a_leak').value||0));checks()}; $('a_bud').onchange=()=>{lset('tank_bud',Math.max(0,Math.round(+$('a_bud').value||0)));checks();drawAll()};
+document.querySelector('.rng').onclick=e=>{ if(e.target.dataset.h===undefined)return; hours=+e.target.dataset.h; try{localStorage.setItem('tank_rng',hours)}catch(x){} for(const b of e.currentTarget.children)b.classList.toggle('cur',b===e.target); drawAll() };
+$('dtabs').onclick=e=>{ if(e.target.dataset.d===undefined)return; days=e.target.dataset.d==='m'?'m':+e.target.dataset.d; for(const b of $('dtabs').children)b.classList.toggle('cur',b===e.target); drawAll() };
+try{const h=localStorage.getItem('tank_rng'); if(h!==null){hours=+h;for(const b of document.querySelectorAll('.rng button'))b.classList.toggle('cur',+b.dataset.h===hours)}}catch(x){}
+addEventListener('ui-theme',()=>drawAll());
+(async()=>{
+  state();loadAll();setInterval(state,10000);setInterval(loadAll,120000);
+  T.noRedirect=true;
+  if(await T.loggedIn()){
+    $('ctl').hidden=false;$('guest').hidden=true; UI.logout=T.logout;
+    T.mountControls($('ctlbox'),s=>{render(s)});
+    $('act').innerHTML='<a class="btn" href="config.html"><svg class="ic"><use href="#i-settings"/></svg>Settings</a><button class="btn" type="button" onclick="T.logout()"><svg class="ic"><use href="#i-logout"/></svg>Log out</button>';
+  }
+})();
+</script>
+</body></html>

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Sign in - Water tank - miniesp</title><link rel="stylesheet" href="/style.css"><link rel="stylesheet" href="tank.css"><script src="/ui.js"></script></head>
+<body data-nav="tank">
+<div class="app"><main class="main"><div class="page">
+<div class="login"><div class="card">
+ <svg class="ic ic-lg" style="color:var(--link)"><use href="#i-droplet"/></svg>
+ <h1 id="t">Sign in</h1><p class="muted" id="s">Water tank controller</p>
+ <form id="f" autocomplete="on" style="margin-top:16px">
+  <input type="text" name="username" value="tank" autocomplete="username" hidden>
+  <div class="field"><label for="pw" id="l1">Password</label><input id="pw" type="password" autocomplete="current-password" required autofocus></div>
+  <div class="field" id="r2" hidden><label for="pw2">Repeat password</label><input id="pw2" type="password" autocomplete="new-password"></div>
+  <button class="btn btn-primary" id="go" style="width:100%;margin-top:12px">Sign in</button>
+  <div class="msg" id="m"></div>
+ </form>
+ <p class="muted small" style="margin-top:12px"><a href="index.html">View the dashboard without signing in</a><br>Unencrypted (HTTP): use only on your own network.</p>
+</div></div>
+</div></main></div>
+<script src="tank.js"></script>
+<script>
+T.noRedirect=true; let setup=false;
+const next=new URLSearchParams(location.search).get('next')||'index.html';
+const dest=/^[a-z0-9_.-]+$/i.test(next)?next:'index.html';
+(async()=>{
+  if(await T.loggedIn()){location.href=dest;return}
+  try{const r=await T.raw(['web','status'],3); if(r.pw===false){setup=true;$('t').textContent='Create a password';$('s').textContent='First start: choose a password (6+ characters) for this controller.';$('l1').textContent='New password';$('pw').autocomplete='new-password';$('r2').hidden=false;$('pw2').required=true;$('go').textContent='Create password'}}
+  catch(e){$('m').textContent=e.message;$('m').className='msg e'}
+})();
+$('f').onsubmit=async ev=>{
+  ev.preventDefault(); const m=$('m'); m.className='msg'; m.textContent='';
+  const pw=$('pw').value;
+  if(setup){ if(pw.length<6){m.textContent='Use at least 6 characters.';m.className='msg e';return} if(pw!==$('pw2').value){m.textContent='The passwords do not match.';m.className='msg e';return} }
+  $('go').disabled=true; m.textContent='Checking…';
+  try{
+    const r=await T.raw(['web',setup?'setup':'login',T.hex(pw)]);
+    if(r.ok){T.setTok(r.token);location.href=dest;return}
+    m.textContent=r.error==='bad'?'Wrong password.':r.error==='nopw'?'No password set yet: reload this page.':r.error==='exists'?'A password already exists: reload this page.':'Failed: '+(r.error||'');m.className='msg e';
+  }catch(e){m.textContent=e.message;m.className='msg e'}
+  $('go').disabled=false;
+};
+</script></body></html>

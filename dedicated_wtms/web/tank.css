@@ -1,0 +1,46 @@
+/* wtms pages: only what the shared design system (/style.css; guide: docs/UI_GUIDE.md in the miniesp repo) does not have */
+:root{--water:var(--c2);--c-use:var(--c3);--c-in:var(--c1)}
+
+/* dashboard layout: level + control on the left, stats + level chart on the right */
+.tank-top{display:grid;gap:var(--gap);grid-template-columns:1fr}
+@media(min-width:1100px){.tank-top{grid-template-columns:minmax(300px,360px) minmax(0,1fr)}
+ .tank-top>.stack:last-child{grid-template-rows:auto 1fr}
+ .tank-top>.stack:last-child>.card{display:flex;flex-direction:column}
+ .tank-top>.stack:last-child>.card>.chartbox{flex:1;min-height:240px}
+ .tank-top>.stack:last-child>.card>.chartbox canvas{position:absolute;inset:0;height:100%}}
+@media(min-width:640px) and (max-width:1099px){.tank-top>.stack:first-child{grid-template-columns:1fr 1fr;align-items:start}}
+.wide-gap{margin-top:var(--gap)}
+#alerts{display:grid;gap:var(--gap);margin-bottom:var(--gap)}
+#alerts:empty{display:none}
+
+/* level gauge */
+.gauge{display:flex;gap:20px;align-items:center}
+.tankv{position:relative;width:96px;height:156px;border:1px solid var(--border-2);border-radius:10px 10px 16px 16px;overflow:hidden;flex:none;background:var(--surface-2)}
+.tankv .fill{position:absolute;left:0;right:0;bottom:0;height:0;background:var(--water);opacity:.85;transition:height .7s}
+.tankv .mark{position:absolute;left:0;right:0;border-top:1px dashed color-mix(in srgb,var(--text) 45%,transparent);pointer-events:none}
+.tankv .pct{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:24px;color:var(--text);text-shadow:0 0 6px var(--surface),0 0 2px var(--surface)}
+.dl{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;margin:0;align-content:center;min-width:0}.dl dt{color:var(--mute)}.dl dd{margin:0;font-weight:500;overflow-wrap:anywhere}
+@media(prefers-reduced-motion:reduce){.tankv .fill{transition:none}}
+
+/* pump control widget (tank.js) */
+.fbanner{padding:10px 14px;border-radius:var(--r);background:var(--surface-2);border:1px solid var(--border);font-weight:500}
+.fbanner.on{background:color-mix(in srgb,var(--ok) 14%,var(--surface));border-color:color-mix(in srgb,var(--ok) 40%,var(--border));color:var(--ok)}
+.fbanner.off{background:color-mix(in srgb,var(--bad) 12%,var(--surface));border-color:color-mix(in srgb,var(--bad) 40%,var(--border));color:var(--bad)}
+.ctl-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+.ctl-grid .btn{width:100%;white-space:normal;text-align:center}
+.msg{min-height:22px;font-size:var(--fs-sm);margin-top:10px;color:var(--mute)}.msg.e{color:var(--bad)}.msg.g{color:var(--ok)}
+
+/* checks */
+.checks{display:grid;gap:12px;margin-bottom:8px}
+.chk{display:flex;gap:12px;align-items:flex-start}.chk .dot{margin-top:8px}.chk .muted{font-size:var(--fs-sm)}
+.card .field input[type=number]{max-width:140px;justify-self:end}
+
+/* settings: dimension calculator; login */
+.calc{border:1px dashed var(--border-2);border-radius:var(--r-lg);padding:4px 16px 16px;margin-top:12px}
+.login{max-width:420px;margin:8vh auto 0}
+.login .card{padding:32px}
+.login h1{font-size:24px;margin:14px 0 6px}
+.login .field{grid-template-columns:1fr;border:0;padding:8px 0}
+#tiles{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media(max-width:700px){#tiles{grid-template-columns:1fr 1fr}}
+#ctlbox .field{grid-template-columns:auto minmax(0,1fr);border-bottom:0}
