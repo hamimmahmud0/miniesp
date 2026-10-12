@@ -1,0 +1,10 @@
+menu "miniesp"
+
+    config MINIESP_BENCH
+        bool "Benchmark syscall (sys_bench, used by the esp-bench package)"
+        default n
+        help
+            Adds the native benchmark kernels and the second-core worker. Off in the standard image: it is not needed to run a tank
+            controller (wtms), MQTT or pkg, and costs flash. The PSRAM variant turns it on. Without it an esp-bench program fails to load.
+
+endmenu

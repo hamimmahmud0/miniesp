@@ -19,7 +19,7 @@ Everything lives in `` (firmware + programs + website). The repo root also holds
 - Service manager (`service`, `systemctl`): native services sshd/www/mdns + unit files `/etc/services/*.service` that run AOT programs on a schedule.
 - Hardware access: GPIO, ADC1, PWM (LEDC), DAC, I2C, UART1/2, microsecond timer; shell commands `gpio adc pwm dac i2c` and matching `sys_*` calls.
 - mDNS name `esp-minix.local` (configurable), static IP or DHCP (configurable), password changeable at runtime (`passwd`).
-- Bundled programs: hello fib greet wc grep head blink btop sonar sysinfo. No website or CGI program is installed by default (the web server shows a placeholder page until you publish `/www/index.html`).
+- Bundled programs: nano ping touch pkg sysinfo (the standard image keeps only what a tank controller, MQTT and pkg need; the example sources stay in programs/ and can be built with `cd programs && ./build.sh NAME.c` and installed with `put`). grep, head and wc are shell built-ins. No website or CGI program is installed by default (the web server shows a placeholder page until you publish `/www/index.html`).
 
 ## 2. Repository layout
 

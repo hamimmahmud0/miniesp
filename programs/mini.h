@@ -98,7 +98,7 @@ SYS("sys_spi_xfer")   int      sys_spi_xfer(int cs, const void *tx, int n, void 
 SYS("sys_pcnt_open")  int      sys_pcnt_open(int unit, int pin);            // unit 0/1: counts rising edges in hardware
 SYS("sys_pcnt_read")  int      sys_pcnt_read(int unit);
 SYS("sys_pcnt_clear") int      sys_pcnt_clear(int unit);
-SYS("sys_bench")      int      sys_bench(int kind, int cores, int ms, int32_t *out, int outbytes);   // ABI 6: native kernels (bench_kernels.h) per second: cores 1 = core 0, 2 = core 1, 3 = both (+8: start and return, kind -1 joins); out[2] = per core rates; returns the sum
+SYS("sys_bench")      int      sys_bench(int kind, int cores, int ms, int32_t *out, int outbytes);   // ABI 6, only in images built with CONFIG_MINIESP_BENCH (the PSRAM variant; off in the standard image): native kernels (bench_kernels.h) per second: cores 1 = core 0, 2 = core 1, 3 = both (+8: start and return, kind -1 joins); out[2] = per core rates; returns the sum
 
 static inline int m_strcmp(const char *a, const char *b) { while (*a && *a == *b) { a++; b++; } return (unsigned char)*a - (unsigned char)*b; }
 static inline size_t m_strlen(const char *s) { size_t n = 0; while (s[n]) n++; return n; }
@@ -163,7 +163,7 @@ static inline int m_atoi(const char *s)
 static inline int m_vsnprintf(char *b, int n, const char *f, va_list ap)
 {
     int o = 0;
-#define PUT(c) do { if (o < n - 1) b[o] = (char)(c); o++; } while (0)
+#define PUT(c) do { char c_ = (char)(c); if (o < n - 1) b[o] = c_; o++; } while (0)       /* evaluate c exactly once: PUT(*s++) must advance even when the buffer is full */
     for (; *f; f++) {
         if (*f != '%') { PUT(*f); continue; }
         f++;
