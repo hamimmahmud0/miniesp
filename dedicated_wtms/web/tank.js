@@ -1,5 +1,5 @@
 // Shared helpers for the tank pages: login token, CGI calls, force-control widget. Styling: /style.css + tank.css.
-window.UI_APP={id:'wtms',label:'Water tank',href:'/tank/',icon:'droplet',pages:[{id:'tank',label:'Dashboard',href:'/tank/'},{id:'tank-settings',label:'Settings',href:'/tank/config.html'}]};
+window.UI_APP={id:'wtms',label:'Water tank',href:'/',icon:'droplet',pages:[{id:'tank',label:'Dashboard',href:'/'},{id:'tank-settings',label:'Settings',href:'/config.html'}]};
 const $=i=>document.getElementById(i);
 const T={
   tok:()=>{try{return localStorage.getItem('tank_tok')||''}catch(e){return''}},

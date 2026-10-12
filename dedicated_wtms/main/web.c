@@ -1,4 +1,4 @@
-// Dashboard + API server (core 0). Serves the water-tank pages embedded in the firmware, the history files from /lfs/tank, state.json from RAM,
+// Dashboard + API server (core 0). Serves the water-tank pages embedded in the firmware (at /), the history files from /lfs/tank, state.json from RAM,
 // and the same API the pages used with the miniesp OS: GET /cgi-bin/wtms?web+SUB+TOKEN+args (the words are separated by + or &).
 #include "web.h"
 #include <errno.h>
@@ -22,13 +22,13 @@ static httpd_handle_t s_srv;
 #define ASSET(sym) extern const uint8_t sym##_start[] asm("_binary_" #sym "_start"); extern const uint8_t sym##_end[] asm("_binary_" #sym "_end");
 ASSET(index_html) ASSET(config_html) ASSET(login_html) ASSET(tank_css) ASSET(tank_js) ASSET(chart_js) ASSET(style_css) ASSET(ui_js)
 static const struct { const char *path, *type; const uint8_t *s, *e; } ASSETS[] = {
-    { "/tank/", "text/html; charset=utf-8", index_html_start, index_html_end },
-    { "/tank/index.html", "text/html; charset=utf-8", index_html_start, index_html_end },
-    { "/tank/config.html", "text/html; charset=utf-8", config_html_start, config_html_end },
-    { "/tank/login.html", "text/html; charset=utf-8", login_html_start, login_html_end },
-    { "/tank/tank.css", "text/css", tank_css_start, tank_css_end },
-    { "/tank/tank.js", "application/javascript", tank_js_start, tank_js_end },
-    { "/tank/chart.js", "application/javascript", chart_js_start, chart_js_end },
+    { "/", "text/html; charset=utf-8", index_html_start, index_html_end },
+    { "/index.html", "text/html; charset=utf-8", index_html_start, index_html_end },
+    { "/config.html", "text/html; charset=utf-8", config_html_start, config_html_end },
+    { "/login.html", "text/html; charset=utf-8", login_html_start, login_html_end },
+    { "/tank.css", "text/css", tank_css_start, tank_css_end },
+    { "/tank.js", "application/javascript", tank_js_start, tank_js_end },
+    { "/chart.js", "application/javascript", chart_js_start, chart_js_end },
     { "/style.css", "text/css", style_css_start, style_css_end },
     { "/ui.js", "application/javascript", ui_js_start, ui_js_end },
 };
@@ -94,9 +94,11 @@ static esp_err_t handler(httpd_req_t *req)
     char uri[200]; strlcpy(uri, req->uri, sizeof uri);
     char *q = strchr(uri, '?'); const char *query = "";
     if (q) { *q = 0; query = q + 1; }
-    if (!strcmp(uri, "/")) { httpd_resp_set_status(req, "302 Found"); httpd_resp_set_hdr(req, "Location", "/tank/"); return httpd_resp_send(req, NULL, 0); }
+    if (!strncmp(uri, "/tank", 5) && (uri[5] == '/' || !uri[5])) {            // the old address: /tank/x -> /x
+        httpd_resp_set_status(req, "302 Found"); httpd_resp_set_hdr(req, "Location", uri[5] && uri[6] ? uri + 5 : "/"); return httpd_resp_send(req, NULL, 0);
+    }
     if (!strcmp(uri, "/cgi-bin/wtms")) return api(req, query);
-    if (!strcmp(uri, "/tank/state.json")) {
+    if (!strcmp(uri, "/state.json")) {
         char js[800]; int n = compat_state_json(js, sizeof js);
         httpd_resp_set_type(req, "application/json"); httpd_resp_set_hdr(req, "Cache-Control", "no-store");
         return httpd_resp_send(req, n ? js : "{}", n ? n : 2);
@@ -107,7 +109,7 @@ static esp_err_t handler(httpd_req_t *req)
             httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
             return httpd_resp_send(req, (const char *)ASSETS[i].s, (ssize_t)(ASSETS[i].e - ASSETS[i].s));
         }
-    if (!strncmp(uri, "/tank/", 6) && !strchr(uri + 6, '/') && strstr(uri, ".csv")) return send_file(req, uri + 6);
+    if (uri[0] == '/' && !strchr(uri + 1, '/') && strstr(uri, ".csv")) return send_file(req, uri + 1);
     return send_text(req, "404 Not Found", "not found\n");
 }
 

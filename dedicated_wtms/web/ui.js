@@ -109,9 +109,7 @@
   function build() {
     document.body.insertAdjacentHTML('afterbegin', sprite);
     const app = document.querySelector('.app'); if (!app) return;
-    app.insertAdjacentHTML('afterbegin', '<header class="topbar"><button class="iconbtn" type="button" id="ui-burger" aria-label="Open navigation">' + ico('menu') + '</button>' + LOGO + '<span class="name" id="ui-topname"></span></header><aside class="side" id="ui-side"></aside>');
-    document.getElementById('ui-burger').onclick = () => drawer(true);
-    render();
+    // dedicated_wtms: no side panel / top bar, the pages carry their own links
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', build); else build();
 

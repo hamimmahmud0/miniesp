@@ -44,3 +44,8 @@
 #tiles{grid-template-columns:repeat(3,minmax(0,1fr))}
 @media(max-width:700px){#tiles{grid-template-columns:1fr 1fr}}
 #ctlbox .field{grid-template-columns:auto minmax(0,1fr);border-bottom:0}
+
+/* dedicated_wtms: no sidebar - the page uses the full width */
+.app{display:block}
+.side,.topbar{display:none!important}
+.main{max-width:1180px;margin:0 auto}
