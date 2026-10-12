@@ -41,7 +41,7 @@ pkg install mytool
 If you replace a file at the same URL, regenerate its journal line (the hash and size must match, otherwise `pkg install` refuses it).
 
 ## Official vs unofficial
-OS programs (`nano`, `touch`, `ping`, `pkg`, `sh`...) are built into `fs_image/bin` and preinstalled. Non-OS packages live in the separate
+OS programs (`nano`, `touch`, `ping`, `pkg`...) are built into `fs_image/bin` and preinstalled. Non-OS packages live in the separate
 `miniesp-pkg` repo, which has its own journal (`journals/pkg.journal`) linked from `journals/main.journal`; use that repo's `programs/build.sh` and `tools/`.
 
 ## Your own journal

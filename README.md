@@ -84,10 +84,9 @@ You log in as **`esp`** (default password **`esp32`**, change it with `passwd`) 
 - `rm [-rf] path...` refuses to remove `/` (the whole filesystem).
 - Colors (terminal only): the prompt is green `user@host`, blue directory, and a red `$` after a failed command; `ls` shows directories in blue and `.aot` programs in green. Output sent to a pipe, a file or `ssh host "cmd"` stays plain.
 - Line editing: Left/Right, Home/End, Delete, Backspace, Ctrl-A/E/U/L/D, and Up/Down history; text is inserted at the cursor.
-- `grep [-vci]`, `head [-n N]` and `wc [-lwc]` are built into the firmware, so they work in pipelines and inside `sh`.
+- `grep [-vci]`, `head [-n N]` and `wc [-lwc]` are built into the firmware, so they work in pipelines.
 - Arrow-up history, backspace, Ctrl-U/L/D work. **Ctrl-C stops a running program.**
 - Programs are `.aot` files, found in **`~/.local/bin`** (your own, searched first) and **`/bin`** (the system's). Run one by name: `hello`, `fib 30`, `ls /bin | grep aot | head -n 3`.
-- `sh` starts a bash-like shell (see below).
 
 | Path | Purpose |
 |---|---|
@@ -217,30 +216,6 @@ hostname, uptime, IP, WiFi network and signal, and the CPU clock. It adapts to y
 btop              # run it from the shell (needs a real terminal: ssh -t / a normal ssh session)
 ```
 Keys: `q` or Ctrl-C quit, `space` pause, `s` change sort (cpu / stack / name / pid), `+` / `-` refresh rate, `r` clear the graph.
-
-## `sh`: a bash-like shell (AOT program)
-
-`sh` is itself a WAMR AOT program (`programs/sh.c`, 38 KB). Interactive use, scripts and one-liners:
-```
-sh                      # interactive (a "> " prompt continues multi-line if/for/while)
-sh script.sh a b        # run a script; $0 $1 $2, $#, $@
-sh -c 'ls /bin | wc'
-```
-Supported: pipelines (`a | b | c`), redirects (`< > >> 2> 2>&1`), lists (`; && || newline`), variables (`NAME=value`, `$NAME`, `${NAME}`, `$?`, `$#`),
-quoting (`'..'`, `".."`, `\x`), command substitution `$(cmd)`, arithmetic `$((i+1))`, comments, and
-`if/elif/else/fi`, `for x in ...; do ...; done`, `while ...; do ...; done`, `break`, `continue`,
-builtins `cd exit export unset shift read true false : test [ source`.
-Not supported: globbing (`*.txt`), functions, background jobs (`&` runs in the foreground), subshells.
-**Inside `sh` only built-in commands can run** (`ls cat cp mv rm mkdir echo grep head wc ...`, see `help`): `sh` itself holds the one program memory, so starting another `.aot` program from a script (`hello`, `fib`, your own programs) fails with "not enough RAM to run a program inside a program". Run such programs from the normal shell instead, or use the built-in `grep`, `head` and `wc` in pipelines.
-Ctrl-C stops the running command (and a running loop) and returns to the `sh` prompt.
-
-```sh
-#!/bin/sh
-# count programs, then say hello 3 times
-echo "programs: $(ls /bin | wc)"
-i=0
-while [ $i -lt 3 ]; do echo "hello $i"; i=$((i+1)); done
-```
 
 ## `pkg`: package manager
 

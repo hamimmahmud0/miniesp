@@ -15,12 +15,11 @@ Everything lives in `` (firmware + programs + website). The repo root also holds
 - SSH server (wolfSSH, port 22), user `esp`, password auth only. Interactive shell (pty) and `ssh host "command"` (exec) both work. Exit status of exec commands is passed back.
 - Shell: unix-like built-ins (ls -la, cat, cp, mv, rm, mkdir -p, put, sha256sum, ps, free, df, ...), pipes and redirects, history, Ctrl-C.
 - Programs: `*.aot` files. Written in C against `programs/mini.h`, run by name from `~/.local/bin` (user) and `/bin` (system).
-- `sh`: a bash-like shell that is itself an AOT program (pipes, redirects, `&& || ;`, variables, `$(...)`, `$((...))`, if/for/while, scripts).
 - Web server (port 80, native C): serves `/www`; `/cgi-bin/NAME?args` runs `/www/cgi-bin/NAME.aot`.
 - Service manager (`service`, `systemctl`): native services sshd/www/mdns + unit files `/etc/services/*.service` that run AOT programs on a schedule.
 - Hardware access: GPIO, ADC1, PWM (LEDC), DAC, I2C, UART1/2, microsecond timer; shell commands `gpio adc pwm dac i2c` and matching `sys_*` calls.
 - mDNS name `esp-minix.local` (configurable), static IP or DHCP (configurable), password changeable at runtime (`passwd`).
-- Bundled programs: hello fib greet wc grep head blink sh btop sonar sysinfo. No website or CGI program is installed by default (the web server shows a placeholder page until you publish `/www/index.html`).
+- Bundled programs: hello fib greet wc grep head blink btop sonar sysinfo. No website or CGI program is installed by default (the web server shows a placeholder page until you publish `/www/index.html`).
 
 ## 2. Repository layout
 
@@ -145,7 +144,7 @@ Troubleshooting flash/boot:
 
 - **One program at a time.** A global run lock serializes top-level programs: an SSH command, a web CGI request or a service run each take it. SSH commands wait up to 10 s; web requests wait ~1 s then get `503 busy` (immediately if an interactive terminal program like `btop`/`sh` holds it); services log "skipped" if busy. A program started from inside another program (`sys_run`) is *nested* and shares the parent's lock. Only **one level of nesting** fits in memory.
 - **Memory is the scarce resource** (single-core build, no PSRAM): about 295 KB DRAM heap total (static `.bss` of the firmware is subtracted from ~328 KB data RAM), ~100 KB free at idle with an SSH session open, ~75 KB while a program runs. Check with the shell command `free` or `btop` (rows: DRAM, IRAM pool, AOT code, Flash FS). Avoid large static arrays in the firmware: they shrink the heap (a 19 KB service log table once made `sh` fail to load).
-- **A program's memory:** WASM linear memory is exactly **64 KB** (1 page, `--initial-memory=65536 --max-memory=65536`) and contains static data + heap-less + the 8 KB stack. It cannot grow. One 64 KB slot is reserved at boot in DRAM (fast, for the top-level program). A second slot in IRAM is attempted but cannot exist on this chip: the IRAM_8BIT pool is 98.8 KB but its largest block is 63,488 bytes (< 65,600), so `free` shows `Slots: DRAM free, IRAM missing`. Consequence: **a program cannot run another program** (`sh` running an `.aot` child fails). Text filters needed in scripts are firmware built-ins (`grep head wc`), which take priority over `/bin/*.aot`.
+- **A program's memory:** WASM linear memory is exactly **64 KB** (1 page, `--initial-memory=65536 --max-memory=65536`) and contains static data + heap-less + the 8 KB stack. It cannot grow. One 64 KB slot is reserved at boot in DRAM (fast, for the top-level program). A second slot in IRAM is attempted but cannot exist on this chip: the IRAM_8BIT pool is 98.8 KB but its largest block is 63,488 bytes (< 65,600), so `free` shows `Slots: DRAM free, IRAM missing`. Consequence: **a program cannot run another program** (a program starting an `.aot` child fails). Text filters needed in scripts are firmware built-ins (`grep head wc`), which take priority over `/bin/*.aot`.
 - **AOT code** is copied into executable IRAM (the "AOT code" pool, ~240 KB, largest block ~100 KB). The `.aot` *file* also stays in RAM while the program runs (the AOT loader keeps pointers into it): files >= 16 KB are placed in the IRAM byte-accessible pool when they fit (pool ~38 KB free after the slot is reserved), else DRAM. `sh.aot` (37.7 KB) fits that pool by only ~280 bytes; keep programs small. Typical program: 3-10 KB AOT.
 - Programs run on a pthread (WAMR calls `pthread_self`; plain FreeRTOS tasks would assert). The worker stack is 16 KB (shell), 10 KB (CGI, services).
 - stdin/stdout/stderr (fd 0/1/2) are the terminal for interactive sessions, an RAM buffer or file in pipelines/redirects, or a log sink in services/CGI. Terminal output converts `\n` to `\r\n` automatically in pty sessions (not in `ssh host cmd`).
@@ -254,7 +253,6 @@ Common load/run errors (printed by the OS on stderr):
 ### 9.1 Shell
 Login: `ssh esp@host`; default password `esp32` (change with `passwd`; `passwd --reset` restores the build-time default). Start directory `/esp`.
 Built-ins: `help ls cd pwd cat echo mkdir rmdir rm mv cp put sha256sum df free uptime ps uname hostname whoami ifconfig wifi sleep clear reboot exit logout passwd gpio adc pwm dac i2c www service systemctl`.
-The built-in shell supports `|`, `<`, `>`, `>>`, `2>`, `2>&1` but not `;`, `&&`, variables: run `sh` for the full language (`sh script.sh args`, `sh -c '...'`, or interactive).
 Network: `hostname NAME` (live; reachable as NAME.local), `ifconfig` (status), `ifconfig dhcp`, `ifconfig static IP MASK GW [DNS]` (then `reboot`), `wifi scan|set SSID [PASS]|clear` (then `reboot`).
 Hardware: `gpio 2 1`, `gpio 5 in`, `adc 34`, `pwm 2 1000 25`, `pwm 2 off`, `dac 25 128`, `i2c scan|read ADDR N|write ADDR BYTES...`.
 
@@ -294,7 +292,7 @@ Natives run on the program's thread; they must not block for long without a way 
 - Terminal UIs without a terminal: spawn `ssh -tt` under a python `pty` with a window size set via `TIOCSWINSZ`, send keys, capture bytes, render with `pyte`.
 - Memory: compare `free` before/after 25 program runs; DRAM should stay within ~1 KB (no leaks). Idle numbers vary with open sessions and web polling; state the conditions when quoting them.
 - Serial log while testing: `python mon.py /dev/ttyUSB0 SECONDS` (it resets the board via RTS first). Look for `ssh:` warnings (`read error`, `flush failed`), `aot:`/`svc:`/`www:` lines and any `Guru Meditation`.
-- Before declaring done after firmware changes: full regression = transfers + `sh` scripts + `btop` 15 s at a large pty size + web CGI calls + a short soak.
+- Before declaring done after firmware changes: full regression = transfers + `btop` 15 s at a large pty size + web CGI calls + a short soak.
 
 ## 11. Hard-won gotchas (internals; read before changing the firmware)
 
@@ -323,7 +321,7 @@ Natives run on the program's thread; they must not block for long without a way 
 
 ## 13. Known limitations / ideas
 
-Single user, one program at a time, no program-in-program (built-ins only inside `sh`), no scp/sftp, no TLS/HTTPS, no public-key SSH auth, no sockets for AOT programs (a web server written as an AOT program would need `sys_socket/bind/listen/accept/recv/send`), no BLE/Bluetooth (RAM), no globbing/functions/background jobs in `sh`, programs limited to 64 KB of memory. Natural next steps: socket syscalls, per-task program contexts to allow concurrent programs, sftp, key auth, OTA updates, BLE (NimBLE) if RAM allows.
+Single user, one program at a time, no program-in-program, no scp/sftp, no TLS/HTTPS, no public-key SSH auth, no sockets for AOT programs (a web server written as an AOT program would need `sys_socket/bind/listen/accept/recv/send`), no BLE/Bluetooth (RAM), programs limited to 64 KB of memory. Natural next steps: socket syscalls, per-task program contexts to allow concurrent programs, sftp, key auth, OTA updates, BLE (NimBLE) if RAM allows.
 
 ## Appendix A: helper scripts (recreate; they live outside the repo in `~/esp/tools/`)
 
