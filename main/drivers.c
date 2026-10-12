@@ -214,20 +214,62 @@ int drv_pulse_in(int pin, int level, int timeout_us)
     return (int)(esp_timer_get_time() - rise);
 }
 
+// Echo timing by interrupt: the GPIO interrupt stamps both edges with esp_timer_get_time(), so the measured width does not depend on when the
+// calling task runs (Wi-Fi / MQTT / flash traffic used to stretch or cut the busy-wait loop and produced stray echoes). The handler is in IRAM,
+// so it also runs while the flash is being written. Falls back to the polling loop if the interrupt cannot be set up.
+static volatile int64_t s_rise, s_fall;
+static volatile int s_have_rise, s_have_fall;
+static void IRAM_ATTR echo_isr(void *arg)
+{
+    int64_t t = esp_timer_get_time();
+    if (gpio_get_level((gpio_num_t)(intptr_t)arg)) { if (!s_have_rise) { s_rise = t; s_have_rise = 1; } }
+    else if (s_have_rise && !s_have_fall) { s_fall = t; s_have_fall = 1; }
+}
+
+static int echo_isr_setup(int echo)
+{
+    static int installed, pin = -1;
+    if (!installed) {
+        esp_err_t e = gpio_install_isr_service(ESP_INTR_FLAG_IRAM);
+        if (e != ESP_OK && e != ESP_ERR_INVALID_STATE) return -1;     // INVALID_STATE: already installed by someone else
+        installed = 1;
+    }
+    if (pin >= 0) gpio_isr_handler_remove(pin);
+    if (gpio_set_intr_type(echo, GPIO_INTR_ANYEDGE) != ESP_OK) return -1;
+    if (gpio_isr_handler_add(echo, echo_isr, (void *)(intptr_t)echo) != ESP_OK) return -1;
+    gpio_intr_disable(echo);                                            // enabled only around a measurement
+    pin = echo;
+    return 0;
+}
+
 int drv_sonar_pulse(int trig, int echo, int timeout_us)
 {
-    static int s_t = -1, s_e = -1;
+    static int s_t = -1, s_e = -1, s_isr_ok = 0;
     if (trig != s_t || echo != s_e) {                    // configure the pins once (and again only if they change)
         if (drv_gpio_mode(trig, 1) < 0 || drv_gpio_mode(echo, 0) < 0) return -1;
+        s_isr_ok = echo_isr_setup(echo) == 0;
+        if (!s_isr_ok) ESP_LOGW(TAG, "sonar: echo interrupt unavailable, using the polling loop");
         s_t = trig; s_e = echo;
     }
     if (timeout_us <= 0) timeout_us = 30000;
+    if (s_isr_ok) { s_have_rise = s_have_fall = 0; gpio_intr_enable(echo); }
     gpio_set_level(trig, 0);
     drv_delay_us(4);
     gpio_set_level(trig, 1);
     drv_delay_us(10);
     gpio_set_level(trig, 0);
-    return drv_pulse_in(echo, 1, timeout_us);
+    if (!s_isr_ok) return drv_pulse_in(echo, 1, timeout_us);
+    int64_t t0 = esp_timer_get_time();
+    int r = -1;                                          // -1: the echo never started, -2: it never ended (line stuck high)
+    for (;;) {
+        int64_t now = esp_timer_get_time();
+        if (s_have_fall) { r = (int)(s_fall - s_rise); break; }
+        if (s_have_rise) { if (now - s_rise > 60000) { r = -2; break; } }
+        else if (now - t0 > timeout_us) break;
+        esp_rom_delay_us(100);
+    }
+    gpio_intr_disable(echo);
+    return r;
 }
 
 /* ---------------- ADC with calibration ---------------- */
