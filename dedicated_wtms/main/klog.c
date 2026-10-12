@@ -20,7 +20,7 @@ static const char *TAG = "klog";
 #define DIR_V  FS_BASE "/log"
 #define FILE_A FS_BASE "/log/kernel.log"
 #define FILE_B FS_BASE "/log/kernel.1"
-#define RING 2048
+#define RING 8192                              // the decision trace writes ~2 KB per control cycle in a burst
 #define LINE 288                                // longer lines are cut (the writer never sees more than this)
 #define CHUNK 900                               // MQTT payload per message (mqtt_publish limit is 1000)
 
@@ -30,6 +30,7 @@ static char s_live[LIVE];                       // the last 4 KB of log text, fo
 static volatile uint32_t s_live_total;          // bytes ever written into it
 static int s_head, s_used;
 static unsigned s_dropped;
+static volatile int s_trace_persist;            // 1: the decision trace is also written to the log files (it is ~3 lines per second: off by default, live view only)
 static volatile int s_urgent, s_pending, s_force_rotate;
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 static TaskHandle_t s_task;
@@ -72,9 +73,12 @@ static int klog_vprintf(const char *fmt, va_list ap)
         out[o++] = line[i];
     }
     if (n && (line[0] == 'E' || line[0] == 'W')) urgent = 1;
+    int is_trace = 0;                                   // "I (123) trace: ..." (the stamp, if any, comes first)
+    for (int i = sl; i < sl + 16 && i + 8 < o; i++) if (out[i] == ')') { is_trace = !memcmp(out + i + 2, "trace:", 6); break; }
     portENTER_CRITICAL(&s_mux);
     for (int i = 0; i < o; i++) s_live[(s_live_total + i) % LIVE] = out[i];
     s_live_total += o;
+    if (is_trace && !s_trace_persist) { portEXIT_CRITICAL(&s_mux); return r; }       // live view only
     if (o <= RING - s_used) {
         int t = (s_head + s_used) % RING;
         for (int i = 0; i < o; i++) { s_ring[t] = out[i]; if (++t == RING) t = 0; }
@@ -82,7 +86,7 @@ static int klog_vprintf(const char *fmt, va_list ap)
     } else s_dropped++;
     if (urgent) s_urgent = 1;
     portEXIT_CRITICAL(&s_mux);
-    if (urgent && s_task) xTaskNotifyGive(s_task);
+    if ((urgent || s_used > 1024) && s_task) xTaskNotifyGive(s_task);          // wake the writer for errors and when the buffer fills up
     return r;
 }
 
@@ -242,3 +246,5 @@ int klog_live_read(uint32_t *cursor, char *dst, int max)
 uint32_t klog_live_end(void) { return s_live_total; }
 
 void klog_flush_now(void) { if (s_fmu) flush(); }
+
+void klog_trace_persist(int on) { s_trace_persist = on != 0; }

@@ -120,6 +120,7 @@ static int colorize(const char *l, int n, char *out, int cap)
     o += snprintf(out + o, cap - o, "\x1b[90m%.*s\x1b[0m%s%.*s\x1b[0m %s%.*s:\x1b[0m", i, l, lc, p + 1 - i, l + i, tag_color(l + t0, t1 - t0), t1 - t0, l + t0);
     int ml = n - (t1 + 1);
     const char *mc = l[i] == 'E' ? "\x1b[91m" : l[i] == 'W' ? "\x1b[33m" : "";
+    if (t1 - t0 == 5 && !memcmp(l + t0, "trace", 5)) mc = l[t1 + 2] == 'd' || (l[t1 + 2] == '-' && l[t1 + 3] == '-') ? "\x1b[1;97m" : "\x1b[37m";      // trace: decisions and cycle markers bright, the rest light grey
     o += snprintf(out + o, cap - o, "%s%.*s%s", mc, ml, l + t1 + 1, mc[0] ? "\x1b[0m" : "");
     return o < cap ? o : cap - 1;
 }

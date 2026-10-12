@@ -203,7 +203,8 @@ int sys_ds18b20(int pin) { return -9999; }                       // no temperatu
 
 int sys_log(const char *m)
 {
-    if (m[0] == 'E' && m[1] == ' ') ESP_LOGE("wtms", "%s", m + 2);
+    if (m[0] == 'T' && m[1] == ' ') ESP_LOGI("trace", "%s", m + 2);                // decision trace
+    else if (m[0] == 'E' && m[1] == ' ') ESP_LOGE("wtms", "%s", m + 2);
     else if (m[0] == 'W' && m[1] == ' ') ESP_LOGW("wtms", "%s", m + 2);
     else ESP_LOGI("wtms", "%s", m[0] == 'I' && m[1] == ' ' ? m + 2 : m);
     return 0;

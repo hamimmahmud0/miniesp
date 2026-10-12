@@ -11,3 +11,4 @@ void klog_info(int *cap_kb, int *size_cur, int *size_old, int *pending, unsigned
 int klog_live_read(uint32_t *cursor, char *dst, int max);   // new text since *cursor (SSH viewer); advances the cursor
 uint32_t klog_live_end(void);
 void klog_flush_now(void);               // write the buffered lines to the file now (used for crash tracing)
+void klog_trace_persist(int on);            // also write the decision trace ("trace:" lines) to the log files (default: live view only)

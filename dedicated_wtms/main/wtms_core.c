@@ -18,13 +18,13 @@ typedef struct { const char *k; void *p; int n; } ik;       // n == 0: int, else
 static char c_name[24] = "tank1", c_pump[64] = "relay_node_1/relay/waterpump", c_ha[24] = "homeassistant";
 static int c_trig = 33, c_echo = 32, c_temp = 0, c_empty = 1379, c_full = 205, c_vol = 1000, c_ml = 8517, c_on = 25, c_off = 95;
 static int c_maxrun = 30, c_rest = 5, c_flowmin = 3, c_rise = 10, c_auto = 1, c_hist = 300;
-static int c_blind = 90, c_minin = 0, c_interval = 15, c_samples = 7, c_jump = 15, c_goodn = 3, c_histkb = 32, c_tempc = 20;
+static int c_trace = 2, c_tracefile = 0, c_blind = 90, c_minin = 0, c_interval = 15, c_samples = 7, c_jump = 15, c_goodn = 3, c_histkb = 32, c_tempc = 20;
 static const ik CFG[] = {
     { "name", c_name, sizeof c_name }, { "pump", c_pump, sizeof c_pump }, { "ha", c_ha, sizeof c_ha },
     { "trig", &c_trig, 0 }, { "echo", &c_echo, 0 }, { "temp", &c_temp, 0 }, { "empty_mm", &c_empty, 0 }, { "full_mm", &c_full, 0 },
     { "vol_l", &c_vol, 0 }, { "ml_cm", &c_ml, 0 }, { "on_pct", &c_on, 0 }, { "off_pct", &c_off, 0 }, { "max_run", &c_maxrun, 0 }, { "rest", &c_rest, 0 },
     { "flow_min", &c_flowmin, 0 }, { "rise_pm", &c_rise, 0 }, { "min_in", &c_minin, 0 }, { "auto", &c_auto, 0 }, { "hist", &c_hist, 0 },
-    { "interval", &c_interval, 0 }, { "samples", &c_samples, 0 }, { "jump_pct", &c_jump, 0 }, { "good_n", &c_goodn, 0 }, { "hist_kb", &c_histkb, 0 }, { "temp_c", &c_tempc, 0 }, { "blind_s", &c_blind, 0 },
+    { "interval", &c_interval, 0 }, { "samples", &c_samples, 0 }, { "jump_pct", &c_jump, 0 }, { "good_n", &c_goodn, 0 }, { "hist_kb", &c_histkb, 0 }, { "temp_c", &c_tempc, 0 }, { "blind_s", &c_blind, 0 }, { "trace", &c_trace, 0 }, { "trace_file", &c_tracefile, 0 },
 };
 static int s_force, s_funtil, s_good, s_ema = -1, s_since, s_start, s_lastoff, s_fault, s_lastrun, s_lasthist, s_disc, s_jumps, s_hold, s_goodlast;
 static int s_lo, s_badn, s_lhb, s_lmem, s_lerr, s_lsup;       // log state (saved): flags of the last cycle, failed sensor cycles in a row, last status line / low-memory warning time
@@ -96,13 +96,16 @@ static int g_t100 = 2000, g_have_t;      // temperature, 1/100 C
 // What is logged: events (pump start/stop with the reason, faults, commands, MQTT / relay-node changes, config changes), every error with its
 // context (sensor echo statistics, memory, Wi-Fi, filesystem), missed control cycles and reboots, and a status line every 30 minutes.
 // Lines starting with "E " / "W " are logged as errors / warnings (the kernel log writes those to flash within 10 s).
+static int g_msamp[16];                                         // the raw result of each echo of the last measure(): us, -1 no echo, -2 stuck, other = out of the valid window
 static int g_mn, g_mlo, g_mmed, g_mhi, g_magree, g_mto, g_mstuck, g_mbad, g_mwhy, g_mdist;     // last measure(): echoes, spread (us), agreeing, timeouts, stuck-high, out of window, why it failed
+// decision trace (live view only unless trace_file=1): trace=0 off, 1 = every cycle's reading and decision, 2 = also every echo, every tick, every publish and file write (set with `trace:N` as a command)
+#define tlog(lv, ...) do { if (c_trace >= (lv)) wlog('T', __VA_ARGS__); } while (0)
 static const char *WHY[] = { "ok", "too few valid echoes", "echoes disagree (noise)", "distance outside the tank" };
 
 static void wlog(char lvl, const char *fmt, ...)
 {
     char l[420]; int o = 0;
-    l[o++] = lvl == 'E' || lvl == 'W' ? lvl : 'I'; l[o++] = ' ';
+    l[o++] = lvl == 'E' || lvl == 'W' || lvl == 'T' ? lvl : 'I'; l[o++] = ' ';
     va_list ap; va_start(ap, fmt);
     o += m_vsnprintf(l + o, (int)sizeof l - o, fmt, ap);
     va_end(ap);
@@ -135,6 +138,20 @@ static const char *ctx(void)
     return b;
 }
 
+static const char *echo_list(void)                              // "2130 2128 none 2135 ..." for the trace
+{
+    static char b[160]; int o = 0;
+    for (int i = 0; i < c_samples && i < 16 && o < (int)sizeof b - 14; i++) {
+        int u = g_msamp[i];
+        o += m_snprintf(b + o, sizeof b - o, "%s", i ? " " : "");
+        if (u == -1) o += m_snprintf(b + o, sizeof b - o, "none");
+        else if (u == -2) o += m_snprintf(b + o, sizeof b - o, "stuck");
+        else if (u < 150 || u > 24000) o += m_snprintf(b + o, sizeof b - o, "bad(%d)", u);
+        else o += m_snprintf(b + o, sizeof b - o, "%d", u);
+    }
+    return b;
+}
+
 // Distance sensor-to-water in mm (median of 7 echoes, speed of sound corrected for temperature), or -1 on failure (g_mwhy says why).
 static int measure(void)
 {
@@ -144,6 +161,7 @@ static int measure(void)
     g_mto = g_mstuck = g_mbad = g_mlo = g_mmed = g_mhi = g_magree = g_mdist = 0;
     for (int i = 0; i < c_samples; i++) {
         int us = sys_sonar_pulse(c_trig, c_echo, 25000);
+        if (i < 16) g_msamp[i] = us;
         if (us >= 150 && us <= 24000) v[n++] = us;
         else if (us == -1) g_mto++;                            // no echo started
         else if (us == -2) g_mstuck++;                         // echo line stuck high
@@ -184,6 +202,7 @@ static int g_pubrc, g_pubfail; static char g_pubt[64];                // a publi
 static int pub(const char *t, const char *p, int retain)
 {
     int r = sys_mqtt_pub(t, p, (int)m_strlen(p), retain, 1);
+    tlog(2, "mqtt publish %s <- %.60s%s%s%s", t, p, m_strlen(p) > 60 ? "..." : "", retain ? " (retained)" : "", r < 0 ? "  ** FAILED **" : "");
     if (r < 0 && !g_pubfail) { g_pubfail = 1; g_pubrc = r; m_snprintf(g_pubt, sizeof g_pubt, "%s", t); }
     return r;
 }
@@ -234,7 +253,7 @@ static void history(int pm, int pumpon)
 {
     if (!sys_time()) return;
     unsigned now = sys_time();
-    if (s_lasthist && now - (unsigned)s_lasthist < (unsigned)c_hist) return;
+    if (s_lasthist && now - (unsigned)s_lasthist < (unsigned)c_hist) { tlog(2, "history: next sample in %us (every %d s)", (unsigned)c_hist - (now - (unsigned)s_lasthist), c_hist); return; }
     int dt = s_lasthist ? (int)(now - (unsigned)s_lasthist) : 0, v = c_vol * pm / 100, u = 0, in = 0, um = 0, im = 0;
     if (s_pv > 0 && dt >= 30 && dt <= 3 * c_hist + 60) {
         int dv = v - (s_pv - 1);
@@ -254,6 +273,7 @@ static void history(int pm, int pumpon)
     }
     s_dd = date; s_du += u; s_di += in; s_dps += s_pps; s_pv = v + 1; s_pps = 0;
     char l[64]; int k = m_snprintf(l, sizeof l, "%u,%d,%d,%d,%d,%d\n", now, pm, c_vol * pm / 1000, pumpon, um, im);
+    tlog(2, "history: sample written to history.csv: level %d.%d%%, pump %s, usage %d ml/min, intake %d ml/min", pm / 10, pm % 10, pumpon ? "ON" : "off", um, im);
     append_line(HIST, HIST_OLD, c_histkb * 1000, l, k);
 }
 
@@ -322,8 +342,12 @@ static int run_cycle(void)
     // auto-off timer keeps being refreshed). Commands from the shell / web page always run at once.
     if (!g_local_cmd[0] && s_lastrun) {
         unsigned every = (unsigned)c_interval; if (s_since && every > 15) every = 15;
-        if (now - (unsigned)s_lastrun < every - 2) return 0;
+        if (now - (unsigned)s_lastrun < every - 2) { tlog(2, "tick: nothing to do, next control cycle in about %us (interval %us%s)", every - (now - (unsigned)s_lastrun), every, s_since ? ", pump running: at most 15 s" : ""); return 0; }
     }
+    static unsigned s_cyc; s_cyc++;
+    unsigned t_cyc0 = sys_millis();
+    tlog(1, "---- cycle #%u: uptime %us, auto %s, force %s, fault %s, pump %s ----", s_cyc, (unsigned)sys_sysinfo(SI_UPTIME_S), c_auto ? "ON" : "OFF",
+         s_force == 1 ? "ON" : s_force == 2 ? "OFF" : "none", FAULTS[s_fault], s_since ? "running (by this controller)" : "idle");
     sys_mkdir(DIR);
     g_pubfail = 0; g_fserr = 0;
     int prev_fault = s_fault, lo = s_lo;
@@ -350,6 +374,10 @@ static int run_cycle(void)
 
     // ---- measure ----
     int d = measure(), pm = -1, sensor_ok = d >= 0;
+    tlog(2, "sonar: %d echoes (us): %s", c_samples, echo_list());
+    if (sensor_ok) tlog(1, "sonar: median %d us -> distance %d.%d cm (speed of sound %d.%d m/s at %d.%d C), %d of %d echoes agree within 1 cm", g_mmed, d / 10, d % 10,
+                        (3313 + g_t100 * 606 / 10000) / 10, (3313 + g_t100 * 606 / 10000) % 10, g_t100 / 100, g_t100 / 10 % 10, g_magree, c_samples);
+    else tlog(1, "sonar: NO VALID READING - %s (%d valid, %d no-echo, %d stuck, %d out of window; need %d valid and %d agreeing)", WHY[g_mwhy], g_mn, g_mto, g_mstuck, g_mbad, (c_samples + 1) / 2, c_samples / 2 + 1);
     s_good = sensor_ok ? (s_good < 100 ? s_good + 1 : s_good) : 0;
     int sens_logged = 0;                                       // a noisy sensor must not flood the log: one failure line per 5 minutes, the rest is counted
     if (sensor_ok && s_badn) { if (s_badn >= 4) wlogx('I', "sensor recovered after %d failed cycles (%us without a reading)", s_badn, now - (unsigned)s_goodlast); s_badn = 0; }
@@ -365,25 +393,29 @@ static int run_cycle(void)
         }
     }
     if (sensor_ok) {
-        int raw = level_pm(d);
-        if (s_ema < 0) s_ema = raw;
-        else if (iabs(raw - s_ema) > c_jump * 10 && s_jumps < 3) s_jumps++;           // ignore a one-off jump (splash, reflection)
-        else { s_ema = (s_ema + raw) / 2; s_jumps = 0; }
+        int raw = level_pm(d), prev_ema = s_ema;
+        const char *how;
+        if (s_ema < 0) { s_ema = raw; how = "first reading, taken as is"; }
+        else if (iabs(raw - s_ema) > c_jump * 10 && s_jumps < 3) { s_jumps++; how = "jump larger than jump_pct: ignored (splash / reflection?)"; }           // ignore a one-off jump
+        else { s_ema = (s_ema + raw) / 2; s_jumps = 0; how = "averaged with the previous value"; }
         pm = s_ema;
+        tlog(1, "level: raw %d.%d%% (%d L), previous %d.%d%% -> %s -> now %d.%d%% (%d L)%s", raw / 10, raw % 10, c_vol * raw / 1000, prev_ema < 0 ? 0 : prev_ema / 10, prev_ema < 0 ? 0 : prev_ema % 10, how,
+             pm / 10, pm % 10, c_vol * pm / 1000, s_jumps ? " [jump count above]" : "");
         s_goodlast = (int)now;
         if (s_fault == F_SENSOR) s_fault = F_NONE;
     }
     // A running pump can disturb the sonar (supply noise, vibration): do not stop it for a few failed readings, only after blind_s seconds without a good one.
     int blind = !sensor_ok && c_blind > 0 && s_since && s_goodlast && now - (unsigned)s_goodlast <= (unsigned)c_blind
                 && s_ema >= 0 && s_ema < c_off * 10 - 100;           // never blind within 10 % of the stop level (overflow)
-    if (blind) pm = s_ema;
-    else if (!sensor_ok && s_fault == F_NONE) s_fault = F_SENSOR;
+    if (blind) { pm = s_ema; tlog(1, "level: sensor failed but the pump is running: keeping the last level %d.%d%% (blind %us of max %d s without a reading)", pm / 10, pm % 10, now - (unsigned)s_goodlast, c_blind); }
+    else if (!sensor_ok && s_fault == F_NONE) { s_fault = F_SENSOR; tlog(1, "level: no reading and not allowed to run blind -> fault 'sensor' set"); }
 
     int online = 1;
     if (sys_mqtt_get(t_stat, buf, sizeof buf - 1) > 0) { buf[sys_mqtt_get(t_stat, buf, sizeof buf - 1)] = 0; online = eq(buf, "online"); }
     int ps = sys_mqtt_get(t_state, buf, sizeof buf - 1), pump_known = ps > 0, pump_on = 0;
     if (pump_known) { buf[ps] = 0; pump_on = eq(buf, "ON"); }
     int mq = sys_mqtt_state() == 2;
+    tlog(1, "inputs: mqtt %s, relay node %s, pump relay reports %s", mq ? "connected" : "DOWN", online ? "online" : "OFFLINE", pump_known ? (pump_on ? "ON" : "OFF") : "nothing yet");
     if (lo & 128) {
         if (mq != !!(lo & 2)) wlogx(mq ? 'I' : 'W', "MQTT %s %s", mq ? "connected" : "DISCONNECTED", ctx());
         if (online != !!(lo & 4)) wlogx(online ? 'I' : 'E', "relay node %s", online ? "online" : "OFFLINE");
@@ -398,7 +430,8 @@ static int run_cycle(void)
     if (got) {
         wlog('I', "command %s (%s)", buf, g_local_cmd[0] ? "web" : "mqtt");
         int fmin = 0;                                                     // "force_on:30" -> 30 minutes
-        for (char *q = buf; *q; q++) if (*q == ':') { fmin = m_atoi(q + 1); *q = 0; break; }
+        int has_arg = 0;
+        for (char *q = buf; *q; q++) if (*q == ':') { fmin = m_atoi(q + 1); *q = 0; has_arg = 1; break; }
         if (eq(buf, "force_on")) { s_force = 1; if (fmin <= 0) fmin = c_maxrun; if (fmin > 1440) fmin = 1440; s_funtil = (int)now + fmin * 60; }
         else if (eq(buf, "force_off")) { s_force = 2; s_funtil = fmin > 0 ? (int)now + (fmin > 1440 ? 1440 : fmin) * 60 : 0; }
         else if (eq(buf, "release")) { s_force = 0; s_funtil = 0; }
@@ -406,6 +439,8 @@ static int run_cycle(void)
         else if (eq(buf, "pump_on")) want_on = 1;
         else if (eq(buf, "pump_off")) want_off = 1;
         else if (eq(buf, "discover")) s_disc = 0;
+        else if (eq(buf, "tracefile") && has_arg) { c_tracefile = fmin ? 1 : 0; klog_trace_persist(c_tracefile); save("tank.cfg", CFG, N(CFG)); wlog('I', "trace written to the log files: %s", c_tracefile ? "ON" : "OFF"); }
+        else if (eq(buf, "trace") && has_arg) { c_trace = fmin < 0 ? 0 : fmin > 2 ? 2 : fmin; save("tank.cfg", CFG, N(CFG)); wlog('I', "trace level set to %d", c_trace); }
     }
 
     // ---- pump control ----
@@ -413,10 +448,12 @@ static int run_cycle(void)
     if (s_force && s_funtil && now >= (unsigned)s_funtil) { s_force = 0; s_funtil = 0; }          // forced period over
     if (s_force == 1 && sensor_ok && pm >= 1000) { s_force = 0; s_funtil = 0; }                    // overflow guard even when forced
     if (mq && s_force == 1) {                                                // forced ON: ignores auto mode, thresholds and faults
+        tlog(1, "decision: FORCED ON (%s) - auto mode, thresholds and faults are ignored; overflow guard at 100%% stays active", s_funtil ? "until the timer ends" : "until released");
         pub(t_set, "ON", 0);
         if (!s_since) { s_since = (int)now; s_start = pm; }
         pump_on = 1; act = "force_on";
     } else if (mq && s_force == 2) {                                         // forced OFF: nothing starts the pump
+        tlog(1, "decision: FORCED OFF (%s) - nothing may start the pump", s_funtil ? "until the timer ends" : "until released");
         if (pump_on || !pump_known) { pub(t_set, "OFF", 0); s_lastoff = (int)now; }
         pump_on = 0; s_since = 0; act = "force_off";
     } else if (mq && pump_known) {
@@ -424,22 +461,55 @@ static int run_cycle(void)
             if (!s_since) { s_since = (int)now; s_start = pm; }                 // started by someone else: adopt it
             unsigned run = now - (unsigned)s_since;
             int stop = 0;
+            if (c_trace >= 1) {
+                int rise = pm - s_start;
+                tlog(1, "stop check: level %d.%d%% vs stop level %d%% -> %s", pm / 10, pm % 10, c_off, pm >= c_off * 10 ? "REACHED" : "not reached");
+                tlog(1, "stop check: running %us of at most %us -> %s", run, (unsigned)c_maxrun * 60, run > (unsigned)c_maxrun * 60 ? "EXCEEDED" : "ok");
+                if (sensor_ok && run >= (unsigned)c_flowmin * 60) {
+                    if (c_minin > 0) { int in = pm_run_dl(pm, (int)run) * 6000 / (int)run; tlog(1, "stop check: intake %d.%02d L/min vs minimum %d.%d -> %s", in / 1000, in % 1000 / 10, c_minin / 10, c_minin % 10, in < c_minin * 100 ? "TOO LOW (no flow)" : "ok"); }
+                    else tlog(1, "stop check: level rose %d.%d%% since the start (%d.%d%%), needs at least %d.%d%% after %d min -> %s", rise / 10, iabs(rise) % 10, s_start / 10, s_start % 10, c_rise / 10, c_rise % 10, c_flowmin, rise < c_rise ? "TOO LITTLE (no flow)" : "ok");
+                } else tlog(1, "stop check: flow check not active yet (starts after %d min of running%s)", c_flowmin, sensor_ok ? "" : ", and needs a sensor reading");
+                tlog(1, "stop check: sensor %s%s", sensor_ok ? "ok" : blind ? "failed but tolerated while the pump runs (blind mode)" : "FAILED", want_off ? "; a pump_off command is pending" : "");
+            }
             if (!sensor_ok && !blind) { stop = 1; why = "no valid level reading"; }
             else if (pm >= c_off * 10) { stop = 1; why = "level reached off_pct"; }
             else if (want_off) { stop = 1; why = "pump_off command"; s_hold = (int)now + c_rest * 60; }
             else if (run > (unsigned)c_maxrun * 60) { stop = 1; why = "max_run exceeded"; s_fault = F_MAXRUN; }
             else if (sensor_ok && run >= (unsigned)c_flowmin * 60 && (c_minin > 0 ? pm_run_dl(pm, (int)run) * 6000 / (int)run < c_minin * 100 : pm - s_start < c_rise)) { stop = 1; why = "no flow"; s_fault = F_NOFLOW; }
-            if (stop) { pub(t_set, "OFF", 0); s_since = 0; s_lastoff = (int)now; act = "stop"; }
-            else { pub(t_set, "ON", 0); act = "run"; }                          // keep-alive for the relay's auto-off timer
+            if (stop) { tlog(1, "decision: STOP the pump - %s", why); pub(t_set, "OFF", 0); s_since = 0; s_lastoff = (int)now; act = "stop"; }
+            else { tlog(1, "decision: keep the pump ON (all stop checks passed); sending ON again as the relay's keep-alive"); pub(t_set, "ON", 0); act = "run"; }                          // keep-alive for the relay's auto-off timer
         } else {
             s_since = 0;
             int can = sensor_ok && s_good >= c_goodn && s_fault == F_NONE && online && pm < c_off * 10;     // 3 good readings in a row before the first start
             int rested = now - (unsigned)s_lastoff >= (unsigned)c_rest * 60 && (unsigned)s_hold <= now;
+            if (c_trace >= 1) {
+                unsigned since_off = now - (unsigned)s_lastoff, rest_s = (unsigned)c_rest * 60, hold_left = (unsigned)s_hold > now ? (unsigned)s_hold - now : 0;
+                tlog(1, "start check: level %d.%d%% vs start level %d%% -> %s", pm / 10, pm % 10, c_on, pm <= c_on * 10 ? "LOW enough to start" : "high enough, no need to start");
+                tlog(1, "start check: auto mode %s%s", c_auto ? "ON" : "OFF", want_on ? "; a pump_on command is pending" : "");
+                tlog(1, "start check: safety - sensor %s, good readings in a row %d of %d needed, fault %s, relay node %s, level below stop level %s", sensor_ok ? "ok" : "FAILED", s_good, c_goodn,
+                     FAULTS[s_fault], online ? "online" : "OFFLINE", pm < c_off * 10 ? "yes" : "NO");
+                if (rested) tlog(1, "start check: rest period over (pump stopped %us ago, rest is %d min%s)", since_off, c_rest, hold_left ? "" : ", no hold");
+                else tlog(1, "start check: still RESTING after the last stop: %us of %us passed%s", since_off, rest_s, hold_left ? ", plus a hold from a pump_off command" : "");
+            }
             if (can && ((c_auto && pm <= c_on * 10 && rested) || want_on)) {
-                pub(t_set, "ON", 0); s_since = (int)now; s_start = pm; act = "start"; pump_on = 1; why = want_on ? "pump_on command" : "level at/below on_pct";
+                why = want_on ? "pump_on command" : "level at/below on_pct";
+                tlog(1, "decision: START the pump - %s", why);
+                pub(t_set, "ON", 0); s_since = (int)now; s_start = pm; act = "start"; pump_on = 1;
+            } else {
+                char bl[160]; int bo = 0;
+                if (!(c_auto || want_on)) bo += m_snprintf(bl + bo, sizeof bl - bo, "auto mode off; ");
+                else if (!(pm <= c_on * 10 || want_on)) bo += m_snprintf(bl + bo, sizeof bl - bo, "level above the start level; ");
+                if (!sensor_ok) bo += m_snprintf(bl + bo, sizeof bl - bo, "no valid sensor reading; ");
+                if (sensor_ok && s_good < c_goodn) bo += m_snprintf(bl + bo, sizeof bl - bo, "waiting for %d good readings in a row; ", c_goodn);
+                if (s_fault != F_NONE) bo += m_snprintf(bl + bo, sizeof bl - bo, "fault '%s' active; ", FAULTS[s_fault]);
+                if (!online) bo += m_snprintf(bl + bo, sizeof bl - bo, "relay node offline; ");
+                if (!rested && c_auto && pm <= c_on * 10) bo += m_snprintf(bl + bo, sizeof bl - bo, "resting after the last stop; ");
+                if (!bo) m_snprintf(bl, sizeof bl, "nothing to do");
+                tlog(1, "decision: keep the pump OFF - %s", bl);
             }
         }
     }
+    if (!(mq && (s_force || pump_known))) tlog(1, "decision: no action - %s", !mq ? "MQTT is down, the relay cannot be commanded" : "the relay has not reported its state yet");
     if (blind && sens_logged && s_since) wlogx('W', "pump keeps running without a level reading (blind_s=%d)", c_blind);
     if ((act[0] == 's' && act[1] != 'o') || (pump_known && (lo & 128) && pump_on != !!(lo & 8)))          // start / stop, or the pump state changed (forced, adopted, switched elsewhere)
         wlogx('I', "pump %s: %s%s%s, level %d.%d%% dist %d.%d cm, run %us", pump_on ? "ON" : "OFF", act, why[0] ? " - " : "", why, pm / 10, pm % 10, d / 10, d % 10,
@@ -460,6 +530,7 @@ static int run_cycle(void)
     static char js[700];
     mk_state(js, sizeof js, pm, d, pump_on ? "ON" : "OFF", c_auto);
     write_file(STATE_JSON, js);
+    tlog(2, "state: dashboard state.json updated (%d bytes, kept in RAM)", (int)m_strlen(js));
     if (mq) {
         if (c_ha[0] && s_disc != DISC_VER) discovery();
         topic("%s/state"); pub(tb, js, 1);
@@ -487,6 +558,8 @@ static int run_cycle(void)
     }
     s_lo = 128 | (mq << 1) | (online << 2) | (pump_known ? (pump_on && !(act[0] == 's' && act[2] == 'o')) << 3 : lo & 8) | (g_pubfail << 4) | (g_fserr << 5);
     save("tank.st", STT, N(STT));
+    tlog(2, "state: saved to NVS (written at once only if something important changed, else every 2 min)");
+    tlog(1, "---- cycle #%u done in %u ms: pump %s, level %d.%d%%, next cycle in about %d s ----", s_cyc, sys_millis() - t_cyc0, pump_on ? "ON" : "OFF", pm / 10, pm % 10, s_since && c_interval > 15 ? 15 : c_interval);
     if (!g_quiet) m_printf("level %d.%d%% (%d L) dist %d.%d cm pump %s auto %s fault %s act %s mqtt %s\n", pm / 10, pm % 10, c_vol * pm / 1000, d / 10, d % 10,
              pump_on ? "ON" : "OFF", c_auto ? "ON" : "OFF", FAULTS[s_fault], act, mq ? (pump_known ? "ok" : "no-pump-state") : "down");
     g_local_cmd[0] = 0;
@@ -568,6 +641,9 @@ static const char *cfg_validate_save_inner(void)
     if (c_jump < 5 || c_jump > 100) return "jump_pct must be 5..100";
     if (c_goodn < 1 || c_goodn > 20) return "good_n must be 1..20";
     if (c_blind < 0 || c_blind > 600) return "blind_s must be 0..600";
+    if (c_trace < 0 || c_trace > 2) return "trace must be 0 (off), 1 (decisions) or 2 (everything)";
+    if (c_tracefile < 0 || c_tracefile > 1) return "trace_file must be 0 or 1";
+    klog_trace_persist(c_tracefile);
     if (c_minin < 0 || c_minin > 2000) return "min_in must be 0..2000 (tenths of L/min)";
     if (c_histkb < 4 || c_histkb > 64) return "hist_kb must be 4..64";
     if (c_tempc < -30 || c_tempc > 60) return "temp_c must be -30..60";
@@ -1069,6 +1145,7 @@ void wtms_init(void)
     load("tank.cfg", CFG, N(CFG));
     derive();
     cfg_text(s_cfg_prev, sizeof s_cfg_prev);
+    klog_trace_persist(c_tracefile);
     load("tank.st", STT, N(STT));
     g_quiet = 1;
     s_inited = 1;
